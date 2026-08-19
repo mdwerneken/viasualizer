@@ -1,14 +1,30 @@
 # VIAsual
 
-**Live app: https://mdwerneken.github.io/viasual/**
+Interactive Milky-Way halo sightline planner for the [Via Project](https://via-project.org)
+Cold Gas Survey — pick observing fields for MMT/Magellan halo cold-gas absorption work:
+stellar streams, globular clusters, dwarf galaxies and their member stars provide distance
+rungs, halo RR Lyrae and Quaia quasars provide backlights, and HI4PI total/HVC maps +
+HVC cloud catalogs show the gas. Ported from the `field-exploration` project's
+`sag_stream_3d.ipynb` field explorer.
 
-Interactive Milky-Way halo sightline planner — a web port of the `field-exploration`
-project's `sag_stream_3d.ipynb` field explorer. Pick observing fields for
-MMT/Magellan halo cold-gas absorption work: stellar streams, globular clusters,
-dwarf galaxies and their member stars provide distance rungs, Quaia quasars
-provide infinite-distance backlights, and HI4PI total/HVC maps show the gas.
+Two apps share this repo and the same `data/` exports:
 
-## How it works
+| App | URL | Stack |
+|---|---|---|
+| **v2** (current) | **https://mdwerneken.github.io/viasual/v2/** | vanilla JS + three.js + Canvas 2D; all analysis in typed-array JS (`v2/js/compute.js`) |
+| v1 (original) | https://mdwerneken.github.io/viasual/ | Pyodide/numpy (`py/core.py`) + plotly.js |
+
+v1 stays live as the numerical cross-reference: the same field gives the same numbers
+in both apps and in the notebook (verified star-for-star on test fields). v2 adds:
+dark sidebar UI, a circular finder cutout, a draggable field arrow in 3D and draggable
+field circles on the sky maps, a live distance-rung ladder (the `scan_fields.py`
+ranking rules computed per field), a Via fiber budget (576 positioners / 540 Viaspec
+fibers), halo RR Lyrae + HVC cloud catalogs, survey cones (Kepler · M31 · M82),
+a full-halo statistics tab, and shareable URL links that encode the exact field.
+Performance: cold boot ~2 s (v1: 15–20 s), field moves 10–60 ms (v1: 0.5–1 s),
+colour/mag changes ~150 ms (v1: 3–7 s).
+
+## v1 — how it works
 
 Everything runs client-side on GitHub Pages — there is no server.
 
@@ -47,6 +63,8 @@ transforms are precomputed rotation matrices stored in `data/meta.json`
 | `data/members.npz` | 11,755 dwarf member stars (P>0.9, <100 kpc) | Battaglia et al. 2022, A&A 657, A54 (VizieR J/A+A/657/A54) |
 | `data/hi.npz` | HI4PI total N(HI) 0.25° grid + HVC map + Λ–B projections | HI4PI: Ben Bekhti et al. 2016, A&A 594, A116; HVC: Westmeier 2018, MNRAS 474, 289 |
 | `data/meta.json` | frame matrices, colormaps (cmcrameri), defaults, top-10 candidate fields per FOV from `tools/scan_fields.py` | — |
+| `data/halo.npz` | 150,943 halo RR Lyrae, \|Z\|>3 kpc, ~10% distances (v2 only; excluded from rungs) | Gaia DR3 vari_rrlyrae via VizieR I/358, Clementini et al. 2023; distances calibrated in `tools/build_halo.py` |
+| `data/clouds.json` | 1,931 HIPASS HVCs (179 CHVC) + 59 ALFALFA UCHVCs (v2 only; sky positions + velocities, no distances) | Putman et al. 2002, AJ 123, 873 (VizieR J/AJ/123/873); Adams et al. 2013, ApJ 768, 77 (VizieR J/ApJ/768/77) |
 
 ## Regenerating the data
 
@@ -58,9 +76,10 @@ conda run -n field-exploration-env python tools/run_cells.py 9 \
     "exec(open('tools/build_web_data.py').read())"
 ```
 
-writes fresh exports into `../viasual/data/`. Then bump `DATA_VERSION` in
-`js/app.js` (and `CODE_VERSION` if `py/core.py` changed), commit, push —
-GitHub Pages redeploys automatically in ~1 min.
+writes fresh exports into `../viasual/data/` (including `halo.npz`); HVC cloud
+catalogs are rebuilt with `conda run -n field-exploration-env python
+tools/build_clouds.py`. Then bump `DATA_VERSION` in `js/app.js` and the `?v=`
+constants in `v2/index.html`, commit, push — GitHub Pages redeploys in ~1 min.
 
 ## Differences from the notebook
 
