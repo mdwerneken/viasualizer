@@ -150,6 +150,22 @@ function draw() {
   map.h = h - map.y0 - 20;
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
 
+  if (state.cloudsOn && D.CLOUDS) {
+    const cl = D.CLOUDS;
+    ctx.strokeStyle = '#6fd8e8';
+    ctx.globalAlpha = 0.75;
+    for (const i of (F.clouds ?? [])) {
+      if (Math.abs(cl.bet[i]) > 32) continue;
+      const [X, Y] = toPx(cl.lam[i], cl.bet[i]);
+      const r = Math.max(1.6, cl.radDeg[i] / 60 * map.w);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(X, Y, r, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // field circle (ellipse in this projection: Δlam stretched by 1/cos(bet))
   const cosb = Math.max(Math.cos(state.bet0 * Math.PI / 180), 0.1);
   const rr = state.fov / 2 * 0.95;

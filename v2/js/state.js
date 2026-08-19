@@ -19,6 +19,7 @@ export const state = {
   kepler: true,
   clean: false,                // clean 3D (for slides)
   qsoOn: true, gcOn: true, dgOn: true, memOn: true, haloOn: true,
+  cloudsOn: false, cloudFilter: 'all',   // all | compact | vhvc
   zoom: 61,                    // 3D half-box [kpc]
   pairKind: 'dd',              // dd | dv | nn | dnn
   rescale: false,              // rescale colours to field
@@ -71,7 +72,7 @@ function scheduleHash() {
     const p = new URLSearchParams();
     p.set('lam', state.lam0.toFixed(3)); p.set('bet', state.bet0.toFixed(3));
     for (const k of HASH_KEYS) p.set(k, String(state[k]));
-    const flags = ['qsoOn', 'gcOn', 'dgOn', 'memOn', 'haloOn', 'hide', 'via', 'isolate', 'hiSphere', 'kepler', 'clean']
+    const flags = ['qsoOn', 'gcOn', 'dgOn', 'memOn', 'haloOn', 'cloudsOn', 'hide', 'via', 'isolate', 'hiSphere', 'kepler', 'clean']
       .filter(k => state[k] !== defaultsFlags[k]);
     if (flags.length) p.set('flip', flags.join(','));
     if (state.stream) p.set('stream', state.stream);
@@ -81,7 +82,7 @@ function scheduleHash() {
 
 const defaultsFlags = {};
 export function initHash() {
-  for (const k of ['qsoOn', 'gcOn', 'dgOn', 'memOn', 'haloOn', 'hide', 'via', 'isolate', 'hiSphere', 'kepler', 'clean']) {
+  for (const k of ['qsoOn', 'gcOn', 'dgOn', 'memOn', 'haloOn', 'cloudsOn', 'hide', 'via', 'isolate', 'hiSphere', 'kepler', 'clean']) {
     defaultsFlags[k] = state[k];
   }
   if (!location.hash || location.hash.length < 2) return false;

@@ -20,6 +20,7 @@ export const UI = {
   kepler: '#4caf50',
   grid: '#1c2536',
   sun: '#ffd34d',
+  cloud: '#6fd8e8',       // HVC clouds
 };
 
 export const KIND_COL = { 0: '#c05252', 1: UI.accent2, 2: UI.member, 3: '#e08b4e' };

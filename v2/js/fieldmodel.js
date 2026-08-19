@@ -35,6 +35,18 @@ export function haloInField() {
   return h;
 }
 
+// active cloud indices under the current filter (VHVC = |vLSR| >= 200 km/s)
+export function activeClouds() {
+  if (!D.CLOUDS || !state.cloudsOn) return [];
+  const cl = D.CLOUDS, out = [];
+  for (let i = 0; i < cl.name.length; i++) {
+    if (state.cloudFilter === 'compact' && cl.type[i] !== 'CHVC' && cl.type[i] !== 'UCHVC') continue;
+    if (state.cloudFilter === 'vhvc' && !(Math.abs(cl.vlsr[i]) >= 200)) continue;
+    out.push(i);
+  }
+  return out;
+}
+
 export function memInField() {
   if (!D.MEM || !state.memOn) return [];
   let m = C.fieldIndices(state.lam0, state.bet0, D.MEM.UG, state.fov / 2);
@@ -86,6 +98,16 @@ export function recompute(opts = {}) {
   F.hh = haloInField();
   F.qq = qsoInField();
   F.gc = C.fieldIndices(state.lam0, state.bet0, D.GCC.UG, state.fov / 2).filter(i => state.gcOn);
+  F.clouds = activeClouds();
+  // clouds intersecting the field: center within (field radius + cloud radius)
+  F.cloudsInField = !F.clouds.length ? [] : (() => {
+    const cl = D.CLOUDS, out = [];
+    for (const i of F.clouds) {
+      const sep = C.angSepAm(state.lam0, state.bet0, cl.lam[i], cl.bet[i]) / 60;
+      if (sep <= state.fov / 2 + cl.radDeg[i]) out.push(i);
+    }
+    return out;
+  })();
   F.dw = C.fieldIndices(state.lam0, state.bet0, D.DWF.UG, state.fov / 2).filter(i => state.dgOn);
   F.src = buildSources(F.idx, F.mm, F.hh, F.qq);
 

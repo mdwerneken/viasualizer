@@ -181,12 +181,22 @@ function buildSidebar() {
   </details>
 
   <details class="group">
-    <summary>HI map</summary>
+    <summary>HI map & clouds</summary>
     <div class="row"><select id="himap-sel">
       ${option('total', 'Total N(HI) (all v)', state.himap === 'total')}
       ${option('hvc', 'High-velocity (HVC)', state.himap === 'hvc')}
       ${option('overlay', 'Total + HVC overlay', state.himap === 'overlay')}
     </select></div>
+    <div class="row checks">
+      <label><input type="checkbox" id="clouds-chk" ${state.cloudsOn ? 'checked' : ''}> <i class="sw cloud"></i>HVC clouds</label>
+    </div>
+    <div class="row"><label>cloud subset</label>
+      <select id="cloud-filter">
+        <option value="all"${state.cloudFilter === 'all' ? ' selected' : ''}>all (Putman+02 + UCHVC)</option>
+        <option value="compact"${state.cloudFilter === 'compact' ? ' selected' : ''}>compact only (CHVC + UCHVC)</option>
+        <option value="vhvc"${state.cloudFilter === 'vhvc' ? ' selected' : ''}>very high velocity (|vLSR| ≥ 200)</option>
+      </select>
+    </div>
     <div class="row checks">
       <label><input type="checkbox" id="rescale-chk" ${state.rescale ? 'checked' : ''}> rescale colours to field</label>
       <label><input type="checkbox" id="connect-chk" ${state.connect ? 'checked' : ''}> NN lines on finder</label>
@@ -272,6 +282,8 @@ function wireSidebar() {
   $('mem-chk').addEventListener('change', e => set({ memOn: e.target.checked }));
   $('halo-chk').addEventListener('change', e => set({ haloOn: e.target.checked }));
   $('himap-sel').addEventListener('change', e => set({ himap: e.target.value }));
+  $('clouds-chk').addEventListener('change', e => set({ cloudsOn: e.target.checked }));
+  $('cloud-filter').addEventListener('change', e => set({ cloudFilter: e.target.value }));
   $('rescale-chk').addEventListener('change', e => set({ rescale: e.target.checked }));
   $('connect-chk').addEventListener('change', e => set({ connect: e.target.checked }));
   $('pair-sel').addEventListener('change', e => set({ pairKind: e.target.value }));
@@ -371,6 +383,8 @@ window.viasualVerify = function () {
     nMembers: F.mm.length,
     nHalo: F.hh?.length ?? 0,
     nQso: F.qq.length,
+    nClouds: F.cloudsInField?.length ?? 0,
+    clouds: (F.cloudsInField ?? []).slice(0, 12).map(i => D.CLOUDS.name[i]),
     hi: F.hi ? { peak: F.hi.peak, mean: F.hi.mean } : null,
     ladder: { nRungs: F.ladder.nRungs, structures: F.ladder.structures.map(r => `${r.dist.toFixed(1)}kpc ${r.kind} ${r.label} (n=${r.n})`) },
     visible: { MMT: F.vMMT, Magellan: F.vMag },

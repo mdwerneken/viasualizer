@@ -48,6 +48,14 @@ function render() {
     for (const i of F.qq) { gmin = Math.min(gmin, D.QSO.G[i]); gmax = Math.max(gmax, D.QSO.G[i]); }
     L.push(`<b>${F.qq.length} quasars</b>${F.qq.length ? ` at G ${f1(gmin)}–${f1(gmax)}` : ''}`);
   } else if (!D.QSO) L.push(`<span class="tiny">quasars loading…</span>`);
+  if (state.cloudsOn && F.cloudsInField) {
+    if (F.cloudsInField.length) {
+      const names = F.cloudsInField.slice(0, 3).map(i =>
+        `${D.CLOUDS.name[i]} (v<sub>LSR</sub> ${D.CLOUDS.vlsr[i].toFixed(0)})`);
+      L.push(`<b>${F.cloudsInField.length} HVC cloud${F.cloudsInField.length > 1 ? 's' : ''}</b> overlapping: ` +
+        names.join(', ') + (F.cloudsInField.length > 3 ? ', …' : ''));
+    } else L.push(`<b>0 HVC clouds</b> overlap the field`);
+  }
   statsEl.innerHTML = L.map(x => `<div>${x}</div>`).join('');
 
   // --- bottom bar ---

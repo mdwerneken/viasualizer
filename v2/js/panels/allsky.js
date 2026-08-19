@@ -3,6 +3,7 @@
 import { D } from '../data.js';
 import { state, setField, on } from '../state.js';
 import { F } from '../fieldmodel.js';
+import { activeClouds } from '../fieldmodel.js';
 import * as C from '../compute.js';
 import { UI, scales } from '../colors.js';
 import { fitCanvas, hexagram, diamond, dot, label } from './canvas2d.js';
@@ -170,6 +171,21 @@ function draw() {
 
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
 
+  if (state.cloudsOn && D.CLOUDS) {
+    const cl = D.CLOUDS;
+    ctx.strokeStyle = UI.cloud;
+    ctx.globalAlpha = 0.75;
+    for (const i of (F.clouds ?? [])) {
+      const [mx, my] = C.mollXY(cl.l[i], cl.b[i]);
+      const [X, Y] = toPx(mx, my);
+      const r = Math.max(1.4, cl.radDeg[i] * map.sx * 0.049);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(X, Y, r, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
   if (state.kepler) {
     for (const cone of D.CONES) {
       drawSkyCircle(ctx, cone.l, cone.b, cone.r, cone.color, 1.2);

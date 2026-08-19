@@ -242,6 +242,25 @@ function drawSources(ctx, xi, eta) {
     }
   }
 
+  // HVC clouds intersecting the field (outline at catalog angular size)
+  if (state.cloudsOn && F.cloudsInField?.length) {
+    const cl = D.CLOUDS;
+    const [cx2, cy2] = C.gnomonic(
+      Float64Array.from(F.cloudsInField, i => cl.lam[i]),
+      Float64Array.from(F.cloudsInField, i => cl.bet[i]), state.lam0, state.bet0);
+    for (let k = 0; k < F.cloudsInField.length; k++) {
+      const i = F.cloudsInField[k];
+      const [X, Y] = toPx(cx2[k], cy2[k]);
+      const r = Math.max(5, cl.radDeg[i] * 60 * px.scale);
+      circleOutline(ctx, X, Y, r, UI.cloud, 1.4, [5, 4]);
+      hitList.push({
+        x: X, y: Y, r: Math.min(r, 30),
+        html: `<b>${cl.name[i]}</b> · ${cl.type[i]}<br>v_LSR ${cl.vlsr[i].toFixed(0)} · v_GSR ${cl.vgsr[i].toFixed(0)} km/s<br>size ~${(cl.radDeg[i] * 2).toFixed(1)}°`,
+        lam: cl.lam[i], bet: cl.bet[i],
+      });
+    }
+  }
+
   // halo RR Lyrae (survey backlights; ~10% distances, excluded from rungs)
   if (F.hh?.length) {
     const [hx, hy] = C.gnomonic(

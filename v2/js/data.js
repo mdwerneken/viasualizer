@@ -31,13 +31,14 @@ function catFromJson(raw) {
 
 export async function loadCore(dataDir, onProgress = () => {}) {
   const t0 = performance.now();
-  const [meta, stars, hi, gcsRaw, dwarfsRaw, members] = await Promise.all([
+  const [meta, stars, hi, gcsRaw, dwarfsRaw, members, cloudsRaw] = await Promise.all([
     fetch(`${dataDir}/meta.json`).then(r => r.json()),
     loadNpz(`${dataDir}/stars.npz`).then(x => { onProgress('stars'); return x; }),
     loadNpz(`${dataDir}/hi.npz`).then(x => { onProgress('HI map'); return x; }),
     fetch(`${dataDir}/gcs.json`).then(r => r.json()),
     fetch(`${dataDir}/dwarfs.json`).then(r => r.json()),
     loadNpz(`${dataDir}/members.npz`).then(x => { onProgress('dwarf members'); return x; }),
+    fetch(`${dataDir}/clouds.json`).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
 
   Object.assign(D, meta);           // M_GAL, M_SGR, R_ICRS2GC, RG_GAL2GC, SUN_GC, constants...
@@ -78,6 +79,27 @@ export async function loadCore(dataDir, onProgress = () => {}) {
     dist: members.dist.data, G: members.G.data, pmem: members.pmem.data,
   }, D.SUN_GC, D.RG_GAL2GC);
   D.QSO = null;   // lazy
+
+  // HVC cloud catalogs (Putman+02 HIPASS + Adams+13 UCHVCs) — one merged list
+  if (cloudsRaw) {
+    const H = cloudsRaw.hvc, U = cloudsRaw.uchvc;
+    const n1 = H.name.length, n2 = U.name.length;
+    const cl = {
+      name: [...H.name, ...U.name],
+      type: [...H.type, ...U.name.map(() => 'UCHVC')],
+      l: Float64Array.from([...H.l, ...U.l]),
+      b: Float64Array.from([...H.b, ...U.b]),
+      lam: Float64Array.from([...H.lam, ...U.lam]),
+      bet: Float64Array.from([...H.bet, ...U.bet]),
+      vlsr: Float64Array.from([...H.vlsr, ...U.vlsr].map(x => x ?? NaN)),
+      vgsr: Float64Array.from([...H.vgsr, ...U.vgsr].map(x => x ?? NaN)),
+      radDeg: Float64Array.from([
+        ...H.maj_deg.map(x => (x ?? 0.3)),
+        ...U.a_am.map(x => (x ?? 20) / 60)]),
+    };
+    cl.UG = unitVectors(cl.lam, cl.bet);
+    D.CLOUDS = cl;
+  } else D.CLOUDS = null;
 
   // survey cones: sky regions the survey will tile (Kepler from meta; M31/M82 added
   // 8-18-26 per Matt — likely tiled Via targets). Radii are placeholders, easy to edit.
