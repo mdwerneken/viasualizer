@@ -1,5 +1,5 @@
 // Field model — one computation per field/state change; every panel reads this.
-import { D, quaiaInField } from './data.js';
+import { D, quaiaInField, sortedCatInField } from './data.js';
 import { state, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { ladder } from './rungs.js';
@@ -28,6 +28,13 @@ export function qsoInField() {
   return q;
 }
 
+export function haloInField() {
+  if (!D.HALO || !state.haloOn) return [];
+  let h = sortedCatInField(D.HALO, state.lam0, state.bet0, state.fov / 2);
+  if (state.hide) h = h.filter(i => D.HALO.G[i] >= state.glo && D.HALO.G[i] <= state.ghi);
+  return h;
+}
+
 export function memInField() {
   if (!D.MEM || !state.memOn) return [];
   let m = C.fieldIndices(state.lam0, state.bet0, D.MEM.UG, state.fov / 2);
@@ -38,9 +45,9 @@ export function memInField() {
   return m;
 }
 
-// combined source table (stars + members + quasars), v1's _field_sources
-function buildSources(idx, mm, qq) {
-  const n = idx.length + mm.length + qq.length;
+// combined source table (stars + members + halo RRL + quasars)
+function buildSources(idx, mm, hh, qq) {
+  const n = idx.length + mm.length + hh.length + qq.length;
   const lam = new Float64Array(n), bet = new Float64Array(n), dist = new Float64Array(n);
   const G = new Float64Array(n), Vr = new Float64Array(n);
   const kind = new Uint8Array(n);    // 0 star, 1 qso, 2 member
@@ -52,6 +59,10 @@ function buildSources(idx, mm, qq) {
   for (const i of mm) {
     lam[k] = D.MEM.lam[i]; bet[k] = D.MEM.bet[i]; dist[k] = D.MEM.dist[i];
     G[k] = D.MEM.G[i]; Vr[k] = NaN; kind[k] = 2; k++;
+  }
+  for (const i of hh) {
+    lam[k] = D.HALO.lam[i]; bet[k] = D.HALO.bet[i]; dist[k] = D.HALO.dist[i];
+    G[k] = D.HALO.G[i]; Vr[k] = NaN; kind[k] = 3; k++;
   }
   for (const i of qq) {
     lam[k] = D.QSO.lam[i]; bet[k] = D.QSO.bet[i]; dist[k] = Infinity;
@@ -72,10 +83,11 @@ export function recompute(opts = {}) {
 
   F.idx = fieldStars();
   F.mm = memInField();
+  F.hh = haloInField();
   F.qq = qsoInField();
   F.gc = C.fieldIndices(state.lam0, state.bet0, D.GCC.UG, state.fov / 2).filter(i => state.gcOn);
   F.dw = C.fieldIndices(state.lam0, state.bet0, D.DWF.UG, state.fov / 2).filter(i => state.dgOn);
-  F.src = buildSources(F.idx, F.mm, F.qq);
+  F.src = buildSources(F.idx, F.mm, F.hh, F.qq);
 
   // NN over all sources: exact brute force up to 3000 (matches v1 star-for-star),
   // gnomonic grid NN beyond that (large 3-5 degree fields)
@@ -95,10 +107,10 @@ export function recompute(opts = {}) {
 
   // ladder + fiber budget
   F.ladder = ladder(F.idx, state.lam0, state.bet0, state.fov / 2, state.ghi, F.qq.length);
-  const nTargets = F.idx.length + F.mm.length + F.qq.length;
+  const nTargets = F.idx.length + F.mm.length + F.hh.length + F.qq.length;
   F.fibers = {
     targets: nTargets,
-    stars: F.idx.length, members: F.mm.length, qsos: F.qq.length,
+    stars: F.idx.length, members: F.mm.length, halo: F.hh.length, qsos: F.qq.length,
     positioners: 576, science: 540, boombox: 36,
     spare: Math.max(0, 540 - nTargets),
     over: Math.max(0, nTargets - 540),
@@ -118,5 +130,6 @@ export function initFieldModel() {
   on('field', (opts) => recompute(opts ?? {}));
   on('ui', () => recompute({}));
   on('quaia', () => recompute({}));
+  on('halo', () => recompute({}));
   recompute({});
 }

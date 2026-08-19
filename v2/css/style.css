@@ -68,6 +68,7 @@ input[type="range"] { accent-color: var(--accent); height: 20px; }
 .sw.gc { background: var(--gc); }
 .sw.dg { background: var(--dwarf); }
 .sw.mem { background: var(--mem); }
+.sw.halo { background: #e08b4e; border-radius: 50%; }
 .side-note { padding: 6px 4px; }
 .tiny { font-size: 10.5px; color: var(--dim); }
 .warn { color: #d8a35a; }

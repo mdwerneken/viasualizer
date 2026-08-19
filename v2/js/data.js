@@ -79,6 +79,14 @@ export async function loadCore(dataDir, onProgress = () => {}) {
   }, D.SUN_GC, D.RG_GAL2GC);
   D.QSO = null;   // lazy
 
+  // survey cones: sky regions the survey will tile (Kepler from meta; M31/M82 added
+  // 8-18-26 per Matt — likely tiled Via targets). Radii are placeholders, easy to edit.
+  D.CONES = [
+    { name: 'Kepler', l: D.KEPLER_LB[0], b: D.KEPLER_LB[1], r: D.KEPLER_R, color: '#4caf50', len: 15 },
+    { name: 'M31', l: 121.17, b: -21.57, r: 10.0, color: '#5a8fd4', len: 15 },
+    { name: 'M82', l: 141.41, b: 40.57, r: 5.0, color: '#c77bd8', len: 15 },
+  ];
+
   D.loadMs = performance.now() - t0;
   return D;
 }
@@ -95,6 +103,51 @@ export async function loadQuaia(dataDir) {
   D.QSO.order = order.sort((a, b) => bet[a] - bet[b]);
   D.QSO.sortedBet = Float32Array.from(D.QSO.order, i => bet[i]);
   return n;
+}
+
+export async function loadHalo(dataDir) {
+  try {
+    const h = await loadNpz(`${dataDir}/halo.npz`);
+    const clsNames = h.cls_names.data;
+    D.HALO = {
+      lam: h.lam.data, bet: h.bet.data, l: h.l.data, b: h.b.data,
+      dist: h.dist.data, G: h.G.data,
+      cls: h.cls_code.data, clsNames,
+    };
+    D.HALO.UG = unitVectors(D.HALO.lam, D.HALO.bet);
+    const n = D.HALO.lam.length;
+    const order = new Uint32Array(n);
+    for (let i = 0; i < n; i++) order[i] = i;
+    const bet = D.HALO.bet;
+    D.HALO.order = order.sort((a, b) => bet[a] - bet[b]);
+    D.HALO.sortedBet = Float32Array.from(D.HALO.order, i => bet[i]);
+    return n;
+  } catch (e) {
+    console.warn('[viasual2] no halo.npz:', e.message);
+    D.HALO = null;
+    return 0;
+  }
+}
+
+// band-limited spherical-cap query over a bet-sorted catalog
+export function sortedCatInField(cat, lam0, bet0, radius) {
+  const sb = cat.sortedBet, ord = cat.order;
+  let lo = 0, hi = sb.length;
+  const b0 = bet0 - radius, b1 = bet0 + radius;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (sb[m] < b0) lo = m + 1; else hi = m; }
+  let hi2 = sb.length, lo2 = lo;
+  while (lo2 < hi2) { const m = (lo2 + hi2) >> 1; if (sb[m] <= b1) lo2 = m + 1; else hi2 = m; }
+  const lr = lam0 * Math.PI / 180, br = bet0 * Math.PI / 180;
+  const ux = Math.cos(br) * Math.cos(lr), uy = Math.cos(br) * Math.sin(lr), uz = Math.sin(br);
+  const out = [];
+  const UG = cat.UG, R2D = 180 / Math.PI;
+  for (let k = lo; k < lo2; k++) {
+    const i = ord[k];
+    const dot = UG[3 * i] * ux + UG[3 * i + 1] * uy + UG[3 * i + 2] * uz;
+    const sep = Math.acos(Math.max(-1, Math.min(1, dot))) * R2D;
+    if (sep <= radius) out.push(i);
+  }
+  return out;
 }
 
 // indices of quasars within `radius` deg of (lam0, bet0) — band-limited search

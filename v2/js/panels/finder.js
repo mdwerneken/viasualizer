@@ -94,6 +94,20 @@ function draw() {
   ctx.fillStyle = UI.textDim;
   ctx.fillRect(px.cx - bar / 2, h - 6, bar, 1.5);
   label(ctx, "10′", px.cx, h - 10, { align: 'center', size: 9 });
+  // colour legend for the active star-colour scale (corner, outside the circle)
+  if (state.mode === 'dist' || state.mode === 'mag') {
+    const scale = state.mode === 'dist' ? scales.dist : scales.mag;
+    const lo = state.mode === 'dist' ? D.DIST_MIN : state.glo;
+    const hi = state.mode === 'dist' ? D.DIST_MAX : state.ghi;
+    const lw = 56, lh = 7, lx = 6, ly = 14;
+    for (let k = 0; k < lw; k++) {
+      ctx.fillStyle = scale.css(k / (lw - 1));
+      ctx.fillRect(lx + k, ly, 1.2, lh);
+    }
+    label(ctx, state.mode === 'dist' ? 'dist [kpc]' : 'G', lx, ly - 4, { size: 8 });
+    label(ctx, lo.toFixed(0), lx, ly + lh + 9, { size: 8 });
+    label(ctx, hi.toFixed(0), lx + lw, ly + lh + 9, { align: 'right', size: 8 });
+  }
 }
 
 function drawHi(ctx, Ram) {
@@ -225,6 +239,24 @@ function drawSources(ctx, xi, eta) {
       ctx.strokeStyle = '#00000088'; ctx.lineWidth = 0.8;
       ctx.stroke();
       hitList.push({ x: X, y: Y, r: 6, qso: F.qq[k], lam: D.QSO.lam[F.qq[k]], bet: D.QSO.bet[F.qq[k]] });
+    }
+  }
+
+  // halo RR Lyrae (survey backlights; ~10% distances, excluded from rungs)
+  if (F.hh?.length) {
+    const [hx, hy] = C.gnomonic(
+      Float64Array.from(F.hh, i => D.HALO.lam[i]),
+      Float64Array.from(F.hh, i => D.HALO.bet[i]), state.lam0, state.bet0);
+    for (let k = 0; k < F.hh.length; k++) {
+      const i = F.hh[k];
+      const [X, Y] = toPx(hx[k], hy[k]);
+      dot(ctx, X, Y, 4.2, UI.halo, 0.9);
+      ctx.strokeStyle = '#00000066'; ctx.lineWidth = 0.8; ctx.stroke();
+      hitList.push({
+        x: X, y: Y, r: 6,
+        html: `<b>halo ${D.HALO.clsNames[D.HALO.cls[i]] || 'RRL'}</b><br>${D.HALO.dist[i].toFixed(1)} kpc (±10%)<br>G = ${D.HALO.G[i].toFixed(2)}`,
+        lam: D.HALO.lam[i], bet: D.HALO.bet[i],
+      });
     }
   }
 

@@ -2,7 +2,7 @@
 const DATA_DIR = '../data';
 export const CODE_VERSION = 'v2.1';
 
-import { loadCore, loadQuaia, D } from './data.js';
+import { loadCore, loadQuaia, loadHalo, D } from './data.js';
 import { state, set, setField, on, emit, initHash, loadSaved, storeSaved, saveCurrentField, galField } from './state.js';
 import * as C from './compute.js';
 import { initScales, UI } from './colors.js';
@@ -154,7 +154,7 @@ function buildSidebar() {
       <input type="range" id="zoom" min="15" max="130" step="1" value="${state.zoom}">
     </div>
     <div class="row checks">
-      <label><input type="checkbox" id="kepler-chk" ${state.kepler ? 'checked' : ''}> Kepler cone</label>
+      <label><input type="checkbox" id="kepler-chk" ${state.kepler ? 'checked' : ''}> survey cones</label>
       <label><input type="checkbox" id="hisph-chk" ${state.hiSphere ? 'checked' : ''}> HI shell</label>
       <label><input type="checkbox" id="clean-chk" ${state.clean ? 'checked' : ''}> clean 3D</label>
     </div>
@@ -176,6 +176,7 @@ function buildSidebar() {
       <label><input type="checkbox" id="gc-chk" ${state.gcOn ? 'checked' : ''}> <i class="sw gc"></i>GCs</label>
       <label><input type="checkbox" id="dg-chk" ${state.dgOn ? 'checked' : ''}> <i class="sw dg"></i>dwarfs</label>
       <label><input type="checkbox" id="mem-chk" ${state.memOn ? 'checked' : ''}> <i class="sw mem"></i>dwarf ★</label>
+      <label><input type="checkbox" id="halo-chk" ${state.haloOn ? 'checked' : ''}> <i class="sw halo"></i>halo RRL</label>
     </div>
   </details>
 
@@ -269,6 +270,7 @@ function wireSidebar() {
   $('gc-chk').addEventListener('change', e => set({ gcOn: e.target.checked }));
   $('dg-chk').addEventListener('change', e => set({ dgOn: e.target.checked }));
   $('mem-chk').addEventListener('change', e => set({ memOn: e.target.checked }));
+  $('halo-chk').addEventListener('change', e => set({ haloOn: e.target.checked }));
   $('himap-sel').addEventListener('change', e => set({ himap: e.target.value }));
   $('rescale-chk').addEventListener('change', e => set({ rescale: e.target.checked }));
   $('connect-chk').addEventListener('change', e => set({ connect: e.target.checked }));
@@ -367,6 +369,7 @@ window.viasualVerify = function () {
     gcs: F.gc.map(i => D.GCC.name[i]),
     dwarfs: F.dw.map(i => D.DWF.name[i]),
     nMembers: F.mm.length,
+    nHalo: F.hh?.length ?? 0,
     nQso: F.qq.length,
     hi: F.hi ? { peak: F.hi.peak, mean: F.hi.mean } : null,
     ladder: { nRungs: F.ladder.nRungs, structures: F.ladder.structures.map(r => `${r.dist.toFixed(1)}kpc ${r.kind} ${r.label} (n=${r.n})`) },
@@ -404,10 +407,13 @@ async function boot() {
     recompute({});
     overlay.classList.add('done');
     setTimeout(() => overlay.remove(), 450);
-    // lazy quasars
+    // lazy heavy catalogs
     loadQuaia(DATA_DIR).then(n => {
       console.log(`[viasual2] quaia loaded: ${n}`);
       emit('quaia');
+    });
+    loadHalo(DATA_DIR).then(n => {
+      if (n) { console.log(`[viasual2] halo RRL loaded: ${n}`); emit('halo'); }
     });
     console.log(`[viasual2] boot ok — ${D.N} stars, load ${D.loadMs.toFixed(0)} ms`);
   } catch (err) {

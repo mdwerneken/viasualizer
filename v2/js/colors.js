@@ -12,7 +12,8 @@ export const UI = {
   accent2: '#f2c200',       // quasar yellow
   gc: '#a06ae0',            // globular clusters (lifted for dark bg)
   dwarf: '#2ec695',         // dwarf galaxies
-  member: '#4da3ff',        // dwarf member stars
+  member: '#4da3ff',
+  halo: '#e08b4e',        // halo RR Lyrae        // dwarf member stars
   greyStar: '#3d4658',      // de-emphasised stars
   outRange: '#5e2929',      // outside mag limit
   hist: '#c05252',
@@ -21,8 +22,8 @@ export const UI = {
   sun: '#ffd34d',
 };
 
-export const KIND_COL = { 0: '#c05252', 1: UI.accent2, 2: UI.member };
-export const KIND_LBL = { 0: 'stream stars', 1: 'quasars', 2: 'dwarf members' };
+export const KIND_COL = { 0: '#c05252', 1: UI.accent2, 2: UI.member, 3: '#e08b4e' };
+export const KIND_LBL = { 0: 'stream stars', 1: 'quasars', 2: 'dwarf members', 3: 'halo RRL' };
 
 // 20-colour stream palette (v1's tab20-style list, works on dark)
 export const PALETTE = ['#4e9cd6', '#ff9a4d', '#57c069', '#e06060', '#b48ee0', '#a8766a',

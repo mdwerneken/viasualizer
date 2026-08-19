@@ -11,7 +11,7 @@ import { UI, scales, streamColor, HEMI_COL, hexToRgb01 } from './colors.js';
 
 let renderer, scene, camera, controls, raycaster;
 let starPts, starGeom, colAttr, sizeAttr;
-let gcPts, dwfPts, memPts;
+let gcPts, dwfPts, memPts, haloPts = null;
 let pointer = {};            // shaft, tip, ring, hitProxy groups
 let hiSphere = null, keplerCone = null, disk, sunMesh, gridGroup;
 let SUN;
@@ -93,6 +93,7 @@ export function initScene(container) {
   on('field', () => { updatePointer(); needsRender = true; });
   on('ui', () => { restyle(); needsRender = true; });
   on('quaia', () => { needsRender = true; });
+  on('halo', () => { buildHaloPoints(); needsRender = true; });
 
   restyle();
   updatePointer();
@@ -250,21 +251,24 @@ function buildGrid() {
 }
 
 function buildKepler() {
-  const kd = C.matVec(D.RG_GAL2GC, C.unitVector1(D.KEPLER_LB[0], D.KEPLER_LB[1]));
-  const dir = new THREE.Vector3(...kd).normalize();
-  const len = 15, a = D.KEPLER_R * Math.PI / 180;
-  const rBase = len * Math.tan(a);
-  const geo = new THREE.ConeGeometry(rBase, len, 40, 1, true);
-  // cone points -y->+y with apex at +len/2; we want apex at Sun, opening along dir
-  geo.translate(0, -len / 2, 0);     // apex at origin, base at -len
-  geo.rotateX(Math.PI);              // base at +len along +y
-  const mat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(UI.kepler), transparent: true, opacity: 0.22,
-    side: THREE.DoubleSide, depthWrite: false,
-  });
-  keplerCone = new THREE.Mesh(geo, mat);
-  keplerCone.position.copy(SUN);
-  keplerCone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  keplerCone = new THREE.Group();
+  for (const cone of D.CONES) {
+    const kd = C.matVec(D.RG_GAL2GC, C.unitVector1(cone.l, cone.b));
+    const dir = new THREE.Vector3(...kd).normalize();
+    const len = cone.len, a = cone.r * Math.PI / 180;
+    const rBase = len * Math.tan(a);
+    const geo = new THREE.ConeGeometry(rBase, len, 40, 1, true);
+    geo.translate(0, -len / 2, 0);     // apex at origin, base at -len
+    geo.rotateX(Math.PI);              // base at +len along +y
+    const mat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(cone.color), transparent: true, opacity: 0.22,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.copy(SUN);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    keplerCone.add(m);
+  }
   scene.add(keplerCone);
 }
 
@@ -313,6 +317,38 @@ function restyleObjects() {
   gcPts.visible = state.gcOn;
   dwfPts.visible = state.dgOn;
   memPts.visible = state.memOn;
+  if (haloPts) haloPts.visible = state.haloOn;
+}
+
+// halo RR Lyrae: geometry built from galactic (l,b) + dist when the file arrives
+function buildHaloPoints() {
+  if (haloPts || !D.HALO) return;
+  const H = D.HALO, n = H.lam.length;
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  const sz = new Float32Array(n), al = new Float32Array(n);
+  const [r, g, b] = hexToRgb01(UI.halo);
+  for (let i = 0; i < n; i++) {
+    const lr = H.l[i] * Math.PI / 180, br = H.b[i] * Math.PI / 180;
+    const ug = [Math.cos(br) * Math.cos(lr), Math.cos(br) * Math.sin(lr), Math.sin(br)];
+    const d = C.matVec(D.RG_GAL2GC, ug);
+    pos[3 * i] = SUN.x + d[0] * H.dist[i];
+    pos[3 * i + 1] = SUN.y + d[1] * H.dist[i];
+    pos[3 * i + 2] = SUN.z + d[2] * H.dist[i];
+    col[3 * i] = r; col[3 * i + 1] = g; col[3 * i + 2] = b;
+    sz[i] = 1.6; al[i] = 0.30;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('psize', new THREE.BufferAttribute(sz, 1));
+  const alphaAttr = new THREE.BufferAttribute(al, 1);
+  geo.setAttribute('alpha', alphaAttr);
+  geo.alphaAttr = alphaAttr;
+  haloPts = new THREE.Points(geo, makePointsMaterial());
+  haloPts.frustumCulled = false;
+  haloPts.userData.kind = 'halo';
+  haloPts.visible = state.haloOn;
+  scene.add(haloPts);
 }
 
 // ---- HI shell ----------------------------------------------------------------------

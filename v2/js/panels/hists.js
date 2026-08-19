@@ -55,7 +55,7 @@ function drawKindHist(cvs, values, title, xlab, infBin, note) {
   if (hi <= lo) hi = lo + 1;
   const bw = (hi - lo) / nb;
   // stacked counts per kind (draw order: star, member, qso)
-  const stacks = [0, 2, 1].map(k => {
+  const stacks = [0, 2, 3, 1].map(k => {
     const arr = new Float64Array(values.length);
     let n = 0;
     for (let i = 0; i < values.length; i++) {
@@ -265,7 +265,7 @@ function drawKindHistInline(ctx, plot, w, h, values, kinds, title, xlab) {
   const nb = 34;
   let lo = mm ? mm[0] : 0, hi = mm ? mm[1] : 1;
   if (hi <= lo) hi = lo + 1;
-  const stacks = [0, 2, 1].map(k => {
+  const stacks = [0, 2, 3, 1].map(k => {
     const vals = [];
     for (let i = 0; i < values.length; i++) if (kinds[i] === k && Number.isFinite(values[i])) vals.push(values[i]);
     return { k, hist: C.histogram(Float64Array.from(vals), nb, lo, hi) };

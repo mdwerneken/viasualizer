@@ -170,7 +170,15 @@ function draw() {
 
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
 
-  drawSkyCircle(ctx, D.KEPLER_LB[0], D.KEPLER_LB[1], D.KEPLER_R, UI.kepler, 1.2);
+  if (state.kepler) {
+    for (const cone of D.CONES) {
+      drawSkyCircle(ctx, cone.l, cone.b, cone.r, cone.color, 1.2);
+      const [cmx, cmy] = C.mollXY(cone.l, cone.b);
+      const [CX, CY] = toPx(cmx, cmy);
+      label(ctx, cone.name, CX, CY - cone.r * map.sy * 0.045 - 4,
+        { align: 'center', size: 8, color: cone.color });
+    }
+  }
   drawSkyCircle(ctx, F.l0, F.b0, Math.max(state.fov / 2, 1.2), UI.accent, 1.8);
   // center pip so a 1-degree field is always visible
   const [fmx, fmy] = C.mollXY(F.l0, F.b0);

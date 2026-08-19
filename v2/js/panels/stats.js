@@ -38,6 +38,11 @@ function render() {
     L.push(`<b>${F.mm.length} dwarf member stars</b> at G ${f1(gmin)}–${f1(gmax)} — ` +
       [...names.entries()].map(([n, c]) => `${n} (${c})`).join(', '));
   }
+  if (F.hh?.length) {
+    let dmin = Infinity, dmax = -Infinity;
+    for (const i of F.hh) { dmin = Math.min(dmin, D.HALO.dist[i]); dmax = Math.max(dmax, D.HALO.dist[i]); }
+    L.push(`<b>${F.hh.length} halo RR Lyrae</b> at ${dmin.toFixed(0)}–${dmax.toFixed(0)} kpc <span class="tiny">(~10% dist; not rungs)</span>`);
+  } else if (D.HALO && state.haloOn) L.push(`<b>0 halo RR Lyrae</b>`);
   if (D.QSO && state.qsoOn) {
     let gmin = Infinity, gmax = -Infinity;
     for (const i of F.qq) { gmin = Math.min(gmin, D.QSO.G[i]); gmax = Math.max(gmax, D.QSO.G[i]); }

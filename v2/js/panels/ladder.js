@@ -83,6 +83,7 @@ function renderFibers() {
   const segs = [
     ['stars', f.stars, KIND_COL[0]],
     ['dwarf ★', f.members, KIND_COL[2]],
+    ['halo RRL', f.halo ?? 0, KIND_COL[3]],
     ['QSO', f.qsos, KIND_COL[1]],
   ].filter(s => s[1] > 0);
   const pct = v => Math.min(100, v / f.science * 100);
