@@ -54,7 +54,7 @@ From the companion research repo (`field-exploration`, private analysis notebook
 
 ```bash
 cd ~/research/field-exploration
-conda run -n sag-stream-env python tools/run_cells.py 9 \
+conda run -n field-exploration-env python tools/run_cells.py 9 \
     "exec(open('tools/build_web_data.py').read())"
 ```
 
