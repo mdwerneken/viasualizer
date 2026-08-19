@@ -2,7 +2,7 @@
 
 **Live app: https://mdwerneken.github.io/viasual/**
 
-Interactive Milky-Way halo sightline planner — a web port of the `sag-stream`
+Interactive Milky-Way halo sightline planner — a web port of the `field-exploration`
 project's `sag_stream_3d.ipynb` field explorer. Pick observing fields for
 MMT/Magellan halo cold-gas absorption work: stellar streams, globular clusters,
 dwarf galaxies and their member stars provide distance rungs, Quaia quasars
@@ -50,10 +50,10 @@ transforms are precomputed rotation matrices stored in `data/meta.json`
 
 ## Regenerating the data
 
-From the companion research repo (`sag-stream`, private analysis notebook):
+From the companion research repo (`field-exploration`, private analysis notebook):
 
 ```bash
-cd ~/research/sag-stream
+cd ~/research/field-exploration
 conda run -n sag-stream-env python tools/run_cells.py 9 \
     "exec(open('tools/build_web_data.py').read())"
 ```

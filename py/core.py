@@ -1,4 +1,4 @@
-# viasual core — analysis + plotly-figure builders ported from sag-stream's
+# viasual core — analysis + plotly-figure builders ported from field-exploration's
 # sag_stream_3d.ipynb. Runs in the browser under Pyodide (numpy only; no astropy/
 # gala/scipy — coordinate frames are precomputed rotation matrices in meta.json).
 # Every function returns plain dicts; numpy arrays are base64-encoded by _A()/_A2()
