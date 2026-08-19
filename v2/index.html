@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIAsual v2 — Via halo sightline planner</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🌌</text></svg>">
+<link rel="stylesheet" href="css/style.css?v=2.1">
+<script type="importmap">
+  { "imports": { "three": "./js/vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="loading">
+  <div class="load-card">
+    <div class="load-title">VIAsual <span class="v2tag">v2</span></div>
+    <div class="load-sub">Via halo sightline planner — streams · GCs · dwarfs · quasars · HI</div>
+    <div id="load-progress">starting…</div>
+  </div>
+</div>
+
+<div id="layout">
+  <aside id="sidebar"></aside>
+
+  <main id="main">
+    <div id="scene"></div>
+    <div id="bottom-bar"></div>
+  </main>
+
+  <section id="dossier">
+    <nav id="tabs">
+      <button class="tab-btn" data-tab="field">Field</button>
+      <button class="tab-btn" data-tab="sky">Sky</button>
+      <button class="tab-btn" data-tab="halo">Halo</button>
+    </nav>
+    <div class="tab-page" data-tab="field">
+      <div id="finder-wrap"></div>
+      <div id="ladder-wrap"></div>
+      <div id="stats-wrap"></div>
+      <div id="hists-wrap"></div>
+    </div>
+    <div class="tab-page" data-tab="sky" style="display:none">
+      <div class="sky-note tiny">drag the field circle, or click anywhere to recenter</div>
+      <div id="allsky-wrap"></div>
+      <div id="sgrmap-wrap"></div>
+    </div>
+    <div class="tab-page" data-tab="halo" style="display:none">
+      <div id="halo-wrap"></div>
+    </div>
+  </section>
+</div>
+
+<div id="tooltip3d" class="tooltip"></div>
+<div id="tooltip2d" class="tooltip"></div>
+
+<footer id="credit">
+  <a href="https://via-project.org" target="_blank" rel="noopener">the Via Project</a> ·
+  <a href="../" title="original app">v1</a> ·
+  <a href="https://github.com/mdwerneken/viasual" target="_blank" rel="noopener">source</a>
+</footer>
+
+<script type="module" src="js/app.js?v=2.1"></script>
+</body>
+</html>
