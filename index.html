@@ -3,169 +3,62 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VIAsual — MW halo sightline planner</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌌</text></svg>">
-<link rel="stylesheet" href="css/style.css?v=2">
-<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
-<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<title>VIAsual — Via halo sightline planner</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🌌</text></svg>">
+<link rel="stylesheet" href="css/style.css?v=2.2">
+<script type="importmap">
+  { "imports": { "three": "./js/vendor/three.module.min.js" } }
+</script>
 </head>
 <body>
-
 <div id="loading">
-  <div class="load-box">
-    <h2>VIAsual</h2>
-    <div id="load-msg">starting…</div>
-    <div class="load-bar"><div id="load-fill"></div></div>
-    <div class="load-note">first visit downloads ~30&nbsp;MB (Python runtime + catalogs); later visits load from cache</div>
+  <div class="load-card">
+    <div class="load-title">VIAsual <span class="v2tag">v2</span></div>
+    <div class="load-sub">Via halo sightline planner — streams · GCs · dwarfs · quasars · HI</div>
+    <div id="load-progress">starting…</div>
   </div>
 </div>
 
-<header>
-  <span class="brand">VIAsual</span>
-  <span class="sub">Milky-Way halo sightline planner — streams · GCs · dwarfs · quasars · HI</span>
-  <span id="qso-status" class="badge"></span>
-  <a class="src" href="v2/" style="font-weight:600">try VIAsual v2 →</a>
-  <a class="src" href="https://github.com/mdwerneken/viasual" target="_blank" rel="noopener">source</a>
-</header>
+<div id="layout">
+  <aside id="sidebar"></aside>
 
-<main id="app" hidden>
+  <main id="main">
+    <div id="scene"></div>
+    <div id="bottom-bar"></div>
+  </main>
 
-  <!-- ── controls ─────────────────────────────────────────── -->
-  <section class="controls">
-    <div class="panel">
-      <h3>View</h3>
-      <label>colour by
-        <select id="mode">
-          <option>Distance [kpc]</option><option>Gaia G magnitude</option>
-          <option>On-sky density (1° FOV)</option><option>Hemisphere visibility</option>
-          <option>Stream (name)</option>
-        </select>
-      </label>
-      <div class="row">
-        <label class="grow">mag limit G <span id="glo-v"></span>–<span id="ghi-v"></span>
-          <input type="range" id="glo" step="0.1"><input type="range" id="ghi" step="0.1">
-        </label>
-      </div>
-      <label class="chk"><input type="checkbox" id="hide" checked> hide sources outside magnitude limit</label>
-      <div class="row">
-        <label class="grow">3D view ±<span id="zoom-v">40</span> kpc (Sun)
-          <input type="range" id="zoom" min="10" max="80" step="5" value="40"></label>
-      </div>
-      <div class="row wrap">
-        <label class="chk"><input type="checkbox" id="hi_sphere"> HI map on 3D</label>
-        <label class="chk"><input type="checkbox" id="kepler" checked> Kepler cone</label>
-        <label class="chk"><input type="checkbox" id="clean"> clean 3D (for slides)</label>
-      </div>
-      <label>HI map
-        <select id="himap">
-          <option value="total">Total N(HI) (all v)</option>
-          <option value="hvc">High-velocity (|v_dev|&gt;70)</option>
-          <option value="overlay">Total + HVC (red)</option>
-        </select>
-      </label>
+  <section id="dossier">
+    <nav id="tabs">
+      <button class="tab-btn" data-tab="field">Field</button>
+      <button class="tab-btn" data-tab="sky">Sky</button>
+      <button class="tab-btn" data-tab="halo">Halo</button>
+    </nav>
+    <div class="tab-page" data-tab="field">
+      <div id="finder-wrap"></div>
+      <div id="ladder-wrap"></div>
+      <div id="stats-wrap"></div>
+      <div id="hists-wrap"></div>
     </div>
-
-    <div class="panel">
-      <h3>Object selection</h3>
-      <div class="row"><select id="stream" class="grow"></select>
-        <button id="goto_stream">→ go to stream</button></div>
-      <div class="row wrap">
-        <label class="chk"><input type="checkbox" id="isolate"> show only selected stream</label>
-        <label class="chk"><input type="checkbox" id="via"> show only Via streams</label>
-      </div>
-      <div class="row"><label class="grow">scan along stream (°) <span id="along-v">–</span>
-        <input type="range" id="along" disabled></label></div>
-      <div class="row"><select id="gc" class="grow"></select><button id="goto_gc">→ GC</button></div>
-      <div class="row"><select id="dg" class="grow"></select><button id="goto_dg">→ dwarf</button></div>
+    <div class="tab-page" data-tab="sky" style="display:none">
+      <div class="sky-note tiny">drag the field circle or click anywhere to recenter · double-click a survey circle for its field · ⤢ enlarges</div>
+      <div id="allsky-wrap"></div>
+      <div id="sgrmap-wrap"></div>
     </div>
-
-    <div class="panel">
-      <h3>Show catalogs</h3>
-      <label class="chk"><input type="checkbox" id="qso_on" checked> quasars (finder only)</label>
-      <label class="chk"><input type="checkbox" id="gc_on" checked> globular clusters</label>
-      <label class="chk"><input type="checkbox" id="dg_on" checked> dwarf galaxies</label>
-      <label class="chk"><input type="checkbox" id="mem_on" checked> dwarf member stars</label>
-      <h3 class="mt">Promising fields</h3>
-      <select id="candidates"><option value="">— pick a shortlisted field —</option></select>
-      <div id="cand-info" class="cand-info"></div>
-    </div>
-
-    <div class="panel grow-panel">
-      <h3>Saved fields <button id="save_field" class="accent">☆ save current field</button></h3>
-      <div id="saved-list" class="chips"></div>
-      <div class="row tiny">
-        <span>recent:</span><div id="recent-list" class="chips inline"></div>
-      </div>
-      <div class="row tiny">
-        <button id="export_saved" class="ghost">copy saved list (JSON)</button>
-        <button id="import_saved" class="ghost">paste to import</button>
-      </div>
+    <div class="tab-page" data-tab="halo" style="display:none">
+      <div id="halo-wrap"></div>
     </div>
   </section>
+</div>
 
-  <!-- ── main plots ────────────────────────────────────────── -->
-  <section class="mainrow">
-    <div class="plotbox" id="fig3d-wrap">
-      <div id="fig3d"></div>
-      <div id="fig3dptr"></div>
-    </div>
-    <div class="rightcol">
-      <div class="plotbox" id="moll"></div>
-      <div class="posgrid">
-        <span class="poslbl">Sgr stream</span>
-        <label>Λ <input type="number" id="lam_n" step="0.1" min="-180" max="180"></label>
-        <input type="range" id="lam" min="-180" max="180" step="0.1" class="grow">
-        <label>B <input type="number" id="bet_n" step="0.1" min="-90" max="90"></label>
-        <input type="range" id="bet" min="-90" max="90" step="0.1" class="grow">
-        <span class="poslbl">Galactic</span>
-        <label>ℓ <input type="number" id="l_n" step="0.1" min="-180" max="180"></label>
-        <input type="range" id="l" min="-180" max="180" step="0.1" class="grow flip">
-        <label>b <input type="number" id="b_n" step="0.1" min="-90" max="90"></label>
-        <input type="range" id="b" min="-90" max="90" step="0.1" class="grow">
-      </div>
-      <div class="row">
-        <span class="tiny">shift ±0.2°:</span>
-        <button class="nudge" data-ax="l" data-d="-0.2">ℓ−</button>
-        <button class="nudge" data-ax="l" data-d="0.2">ℓ+</button>
-        <button class="nudge" data-ax="b" data-d="-0.2">b−</button>
-        <button class="nudge" data-ax="b" data-d="0.2">b+</button>
-        <label class="grow" style="margin-left:12px">FOV Ø <span id="fov-v">1</span>°
-          <input type="range" id="fov" min="1" max="5" step="0.25" value="1"></label>
-      </div>
-      <div class="row wrap">
-        <label class="chk"><input type="checkbox" id="rescale"> rescale field colors</label>
-        <label class="chk"><input type="checkbox" id="connect"> connect NN pairs</label>
-        <span class="tiny hint">tip: click any map, the finder, or a 3D star to recenter the field</span>
-      </div>
-    </div>
-  </section>
+<div id="tooltip3d" class="tooltip"></div>
+<div id="tooltip2d" class="tooltip"></div>
 
-  <section class="botrow">
-    <div class="plotbox narrow" id="skymap"></div>
-    <div class="plotbox" id="finder"></div>
-    <div class="statcol">
-      <div id="stats" class="stats"></div>
-      <select id="pair_kind">
-        <option>sky-sep vs Δdist (pairs)</option><option>sky-sep vs Δv (pairs)</option>
-        <option>d_i vs d_nn (NN)</option><option>Δdistance histogram (NN)</option>
-      </select>
-      <div class="plotbox" id="pair"></div>
-    </div>
-    <div class="histcol">
-      <div class="plotbox" id="dist"></div>
-      <div class="plotbox" id="mag"></div>
-      <div class="plotbox" id="nn"></div>
-    </div>
-  </section>
+<footer id="credit">
+  <a href="https://via-project.org" target="_blank" rel="noopener">the Via Project</a> ·
+  <a href="v1/" title="original app">v1</a> ·
+  <a href="https://github.com/mdwerneken/viasual" target="_blank" rel="noopener">source</a>
+</footer>
 
-  <footer>
-    Data: stream compilation (Bonaca &amp; Price-Whelan 2025) · Quaia (Storey-Fisher+ 2024) ·
-    Baumgardt &amp; Vasiliev 2021 GCs · McConnachie 2012 dwarfs · Battaglia+ 2022 members ·
-    HI4PI (Ben Bekhti+ 2016) · HVC map (Westmeier 2018). Analysis runs in your browser
-    (Python/numpy via Pyodide); companion notebook: <code>field-exploration</code>.
-  </footer>
-</main>
-
-<script src="js/app.js?v=7"></script>
+<script type="module" src="js/app.js?v=2.2"></script>
 </body>
 </html>

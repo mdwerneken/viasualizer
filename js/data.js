@@ -29,16 +29,20 @@ function catFromJson(raw) {
   return cat;
 }
 
+// bump when files in data/ change, so deployed pages never read stale caches
+export const DATA_VERSION = 'v2.2';
+const q = `?${DATA_VERSION}`;
+
 export async function loadCore(dataDir, onProgress = () => {}) {
   const t0 = performance.now();
   const [meta, stars, hi, gcsRaw, dwarfsRaw, members, cloudsRaw] = await Promise.all([
-    fetch(`${dataDir}/meta.json`).then(r => r.json()),
-    loadNpz(`${dataDir}/stars.npz`).then(x => { onProgress('stars'); return x; }),
-    loadNpz(`${dataDir}/hi.npz`).then(x => { onProgress('HI map'); return x; }),
-    fetch(`${dataDir}/gcs.json`).then(r => r.json()),
-    fetch(`${dataDir}/dwarfs.json`).then(r => r.json()),
-    loadNpz(`${dataDir}/members.npz`).then(x => { onProgress('dwarf members'); return x; }),
-    fetch(`${dataDir}/clouds.json`).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`${dataDir}/meta.json${q}`).then(r => r.json()),
+    loadNpz(`${dataDir}/stars.npz${q}`).then(x => { onProgress('stars'); return x; }),
+    loadNpz(`${dataDir}/hi.npz${q}`).then(x => { onProgress('HI map'); return x; }),
+    fetch(`${dataDir}/gcs.json${q}`).then(r => r.json()),
+    fetch(`${dataDir}/dwarfs.json${q}`).then(r => r.json()),
+    loadNpz(`${dataDir}/members.npz${q}`).then(x => { onProgress('dwarf members'); return x; }),
+    fetch(`${dataDir}/clouds.json${q}`).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
 
   Object.assign(D, meta);           // M_GAL, M_SGR, R_ICRS2GC, RG_GAL2GC, SUN_GC, constants...
@@ -101,21 +105,24 @@ export async function loadCore(dataDir, onProgress = () => {}) {
     D.CLOUDS = cl;
   } else D.CLOUDS = null;
 
-  // survey cones: sky regions the survey will tile (Kepler from meta; M31/M82 added
-  // 8-18-26 per Matt — likely tiled Via targets). Radii are placeholders, easy to edit.
+  // survey cones: sky regions the survey will tile. FOVs set by Matt 8-19-26:
+  // Kepler 15°, M31 6°, M82 2° (r = FOV/2). Independently toggleable via state.
   D.CONES = [
-    { name: 'Kepler', l: D.KEPLER_LB[0], b: D.KEPLER_LB[1], r: D.KEPLER_R, color: '#4caf50', len: 15 },
-    { name: 'M31', l: 121.17, b: -21.57, r: 10.0, color: '#5a8fd4', len: 15 },
-    { name: 'M82', l: 141.41, b: 40.57, r: 5.0, color: '#c77bd8', len: 15 },
+    { key: 'coneKepler', name: 'Kepler', l: D.KEPLER_LB[0], b: D.KEPLER_LB[1], fov: 15.0, r: 7.5, color: '#4caf50', len: 15 },
+    { key: 'coneM31', name: 'M31', l: 121.17, b: -21.57, fov: 6.0, r: 3.0, color: '#5a8fd4', len: 15 },
+    { key: 'coneM82', name: 'M82', l: 141.41, b: 40.57, fov: 2.0, r: 1.0, color: '#c77bd8', len: 15 },
   ];
+
+  // 3D reference volume: box + far-object parking radius (Matt 8-19-26: both 100 kpc)
+  D.BOX_R = 100;
 
   D.loadMs = performance.now() - t0;
   return D;
 }
 
 export async function loadQuaia(dataDir) {
-  const q = await loadNpz(`${dataDir}/quaia.npz`);
-  D.QSO = { lam: q.lam.data, bet: q.bet.data, G: q.G.data, z: q.z.data };
+  const qz = await loadNpz(`${dataDir}/quaia.npz${q}`);
+  D.QSO = { lam: qz.lam.data, bet: qz.bet.data, G: qz.G.data, z: qz.z.data };
   D.QSO.UG = unitVectors(D.QSO.lam, D.QSO.bet);
   // bet-sorted index so field queries only dot-test a latitude band
   const n = D.QSO.lam.length;
@@ -129,7 +136,7 @@ export async function loadQuaia(dataDir) {
 
 export async function loadHalo(dataDir) {
   try {
-    const h = await loadNpz(`${dataDir}/halo.npz`);
+    const h = await loadNpz(`${dataDir}/halo.npz${q}`);
     const clsNames = h.cls_names.data;
     D.HALO = {
       lam: h.lam.data, bet: h.bet.data, l: h.l.data, b: h.b.data,

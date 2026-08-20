@@ -1,16 +1,23 @@
 // Finder chart — a clean circular cutout of the field (gnomonic projection, arcmin).
-// HI background clipped to the circle, star glyphs, GC/dwarf/member/QSO markers,
-// hover readout, click-to-recenter, tiled 1-degree pointings when FOV > 1.
+// HI background clipped to the circle (with its own colorbar top-left + stats top-right),
+// star glyphs, GC/dwarf/member/QSO markers, hover readout, dblclick-to-recenter,
+// drag-to-pan, tiled 1-degree pointings over ALL sources when FOV > 1, and rung
+// pop-out highlighting driven by the ladder / stats panels.
 import { D } from '../data.js';
 import { state, setField, on } from '../state.js';
 import { F } from '../fieldmodel.js';
+import { skey } from '../rungs.js';
 import * as C from '../compute.js';
 import { UI, scales } from '../colors.js';
+import { placeTooltip } from '../scene3d.js';
+import { makeExpandable } from './expand.js';
 import { fitCanvas, starGlyph, hexagram, diamond, dot, circleOutline, label } from './canvas2d.js';
 
-let cv, wrap, tipEl;
+let cv, wrap, tipEl, expander;
 let px = { R: 0, cx: 0, cy: 0, scale: 1 };   // arcmin -> px mapping
 let hitList = [];                             // for hover/click
+let hiStretch = null;                         // {v0, v1} of the current HI render
+let hilite = null;                            // {type:'rung', rung}|{type:'kind', kind}|null
 
 let liveMove = false;
 export function initFinder(container) {
@@ -19,11 +26,12 @@ export function initFinder(container) {
   cv.className = 'finder-canvas';
   container.appendChild(cv);
   tipEl = document.getElementById('tooltip2d');
+  expander = makeExpandable(container, { onToggle: () => draw() });
   on('fieldmodel', (opts) => { liveMove = !!opts?.live; draw(); });
+  on('hilite', h => { hilite = h; draw(); });
   new ResizeObserver(draw).observe(container);
-  cv.addEventListener('pointermove', hover);
   cv.addEventListener('pointerleave', () => { tipEl.style.display = 'none'; });
-  cv.addEventListener('click', click);
+  wirePointer();
 }
 
 function toPx(xiAm, etaAm) {
@@ -34,7 +42,7 @@ function fromPx(x, y) {
 }
 
 function colorFor(kindArrs, i) {
-  // colour stars by active mode (dist / mag), fall back to accent
+  // color stars by active mode (dist / mag), fall back to accent
   if (state.mode === 'mag') {
     const t = (kindArrs.G[i] - state.glo) / Math.max(1e-9, state.ghi - state.glo);
     return scales.mag.css(Math.max(0, Math.min(1, t)));
@@ -43,14 +51,28 @@ function colorFor(kindArrs, i) {
   return scales.dist.css(Math.max(0, Math.min(1, t)));
 }
 
+// does a source belong to the active pop-out highlight?
+function inHilite(kind, structKey, dist) {
+  if (!hilite) return true;
+  if (hilite.type === 'kind') {
+    if (hilite.kind === 'dwarf') return kind === 'dwarf' || kind === 2;  // dwarfs + members
+    return kind === hilite.kind;
+  }
+  const r = hilite.rung;
+  if (r.kind === 'halo') return kind === 3 && Math.abs(dist - r.dist) <= 1.5;
+  if (kind === 1) return false;                       // quasars never in a structure rung
+  return structKey === r.key;
+}
+const dimA = 0.12;   // alpha for non-highlighted sources while popping a rung out
+
 function draw() {
   const w = wrap.clientWidth;
   if (!w) return;
-  const h = w;                                    // square, circle inscribed
+  const h = Math.min(w, Math.max(240, window.innerHeight - 40));  // circle inscribed
   const ctx = fitCanvas(cv, w, h);
   ctx.clearRect(0, 0, w, h);
   const Ram = state.fov / 2 * 60;                 // field radius in arcmin
-  px.R = w / 2 - 8; px.cx = w / 2; px.cy = h / 2;
+  px.R = Math.min(w, h) / 2 - 8; px.cx = w / 2; px.cy = h / 2;
   px.scale = px.R / Ram;
   hitList = [];
 
@@ -63,21 +85,20 @@ function draw() {
   ctx.fillRect(0, 0, w, h);
 
   drawHi(ctx, Ram);
+  drawMagellanicDisks(ctx);
 
-  // tiled 1-degree pointings when FOV > 1
-  if (state.fov > 1.001 && F.idx.length) {
-    const [xi, eta] = C.gnomonic(
-      Float64Array.from(F.idx, i => D.s_lam[i]),
-      Float64Array.from(F.idx, i => D.s_bet[i]), state.lam0, state.bet0);
-    if (!liveMove) {
-      const cov = coverPointings(xi, eta);
+  // tiled 1-degree pointings over ALL sources when FOV > 1
+  if (state.fov > 1.001 && !liveMove) {
+    const pts = allSourceXiEta();
+    if (pts) {
+      const cov = coverPointings(pts.xi, pts.eta);
       for (const [cxc, cyc] of cov) {
         const [X, Y] = toPx(cxc, cyc);
-        circleOutline(ctx, X, Y, 30 * px.scale, 'rgba(150,160,180,0.35)', 1);
+        circleOutline(ctx, X, Y, 30 * px.scale, 'rgba(255,255,255,0.55)', 1.1);
       }
     }
-    drawSources(ctx, xi, eta);
-  } else if (F.idx.length) {
+  }
+  if (F.idx.length) {
     const [xi, eta] = C.gnomonic(
       Float64Array.from(F.idx, i => D.s_lam[i]),
       Float64Array.from(F.idx, i => D.s_bet[i]), state.lam0, state.bet0);
@@ -94,19 +115,30 @@ function draw() {
   ctx.fillStyle = UI.textDim;
   ctx.fillRect(px.cx - bar / 2, h - 6, bar, 1.5);
   label(ctx, "10′", px.cx, h - 10, { align: 'center', size: 9 });
-  // colour legend for the active star-colour scale (corner, outside the circle)
-  if (state.mode === 'dist' || state.mode === 'mag') {
-    const scale = state.mode === 'dist' ? scales.dist : scales.mag;
-    const lo = state.mode === 'dist' ? D.DIST_MIN : state.glo;
-    const hi = state.mode === 'dist' ? D.DIST_MAX : state.ghi;
-    const lw = 56, lh = 7, lx = 6, ly = 14;
-    for (let k = 0; k < lw; k++) {
-      ctx.fillStyle = scale.css(k / (lw - 1));
-      ctx.fillRect(lx + k, ly, 1.2, lh);
-    }
-    label(ctx, state.mode === 'dist' ? 'dist [kpc]' : 'G', lx, ly - 4, { size: 8 });
-    label(ctx, lo.toFixed(0), lx, ly + lh + 9, { size: 8 });
-    label(ctx, hi.toFixed(0), lx + lw, ly + lh + 9, { align: 'right', size: 8 });
+
+  // HI colorbar (top-left) + HI stats (top-right) — the star colorbar lives on the 3D view now
+  drawHiLegend(ctx, w);
+}
+
+function drawHiLegend(ctx, w) {
+  const useHvc = state.himap === 'hvc';
+  const scale = useHvc ? scales.hiRed : scales.hiBlue;
+  const lw = 56, lh = 7, lx = 6, ly = 14;
+  for (let k = 0; k < lw; k++) {
+    ctx.fillStyle = scale.css(k / (lw - 1));
+    ctx.fillRect(lx + k, ly, 1.2, lh);
+  }
+  label(ctx, useHvc ? 'HVC log N(HI)' : 'log N(HI)', lx, ly - 4, { size: 8 });
+  if (hiStretch) {
+    label(ctx, hiStretch.v0.toFixed(1), lx, ly + lh + 9, { size: 8 });
+    label(ctx, hiStretch.v1.toFixed(1), lx + lw, ly + lh + 9, { align: 'right', size: 8 });
+  }
+  // keep clear of the ⤢ enlarge button in the top-right corner
+  if (F.hi) {
+    label(ctx, `mean ${Math.log10(F.hi.mean).toFixed(2)}`, w - 36, 10, { align: 'right', size: 8.5 });
+    label(ctx, `peak ${Math.log10(F.hi.peak).toFixed(2)}`, w - 36, 20, { align: 'right', size: 8.5 });
+  } else if (state.himap === 'hvc') {
+    label(ctx, 'no HVC signal', w - 36, 10, { align: 'right', size: 8.5 });
   }
 }
 
@@ -130,6 +162,7 @@ function drawHi(ctx, Ram) {
   for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) {
     M[r][q] = A[r][0] * B[q][0] + A[r][1] * B[q][1] + A[r][2] * B[q][2];
   }
+  hiStretch = null;
   for (const [grid, scale, alpha] of grids) {
     const vals = new Float64Array(n * n);
     for (let iy = 0, k = 0; iy < n; iy++) {
@@ -151,6 +184,7 @@ function drawHi(ctx, Ram) {
     const fin = [...vals].filter(Number.isFinite).sort((a, b) => a - b);
     if (!fin.length) continue;
     const v0 = C.quantileSorted(fin, 0.02), v1 = C.quantileSorted(fin, 0.98);
+    if (!hiStretch) hiStretch = { v0, v1 };
     const off = document.createElement('canvas');
     off.width = n; off.height = n;
     const octx = off.getContext('2d');
@@ -170,6 +204,41 @@ function drawHi(ctx, Ram) {
     ctx.drawImage(off, px.cx - px.R, px.cy - px.R, 2 * px.R, 2 * px.R);
     ctx.globalAlpha = 1;
   }
+}
+
+// LMC / SMC: rough on-sky disks in place of members, when members are shown
+const MAGELLANIC = [{ name: 'LMC', rDeg: 5.4 }, { name: 'SMC', rDeg: 2.6 }];
+function drawMagellanicDisks(ctx) {
+  if (!state.dgOn || !state.memOn) return;
+  for (const mc of MAGELLANIC) {
+    const i = D.DWF.name.indexOf(mc.name);
+    if (i < 0) continue;
+    const sepDeg = C.angSepAm(state.lam0, state.bet0, D.DWF.lam[i], D.DWF.bet[i]) / 60;
+    if (sepDeg > state.fov / 2 + mc.rDeg) continue;
+    const [x, y] = C.gnomonic(
+      Float64Array.of(D.DWF.lam[i]), Float64Array.of(D.DWF.bet[i]), state.lam0, state.bet0);
+    const [X, Y] = toPx(x[0], y[0]);
+    ctx.globalAlpha = 0.14;
+    ctx.fillStyle = UI.dwarf;
+    ctx.beginPath();
+    ctx.arc(X, Y, mc.rDeg * 60 * px.scale, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// gnomonic positions of every rung-relevant source (stars, members, halo, GCs, dwarfs)
+function allSourceXiEta() {
+  const lam = [], bet = [];
+  for (const i of F.idx) { lam.push(D.s_lam[i]); bet.push(D.s_bet[i]); }
+  for (const i of F.mm) { lam.push(D.MEM.lam[i]); bet.push(D.MEM.bet[i]); }
+  for (const i of F.hh ?? []) { lam.push(D.HALO.lam[i]); bet.push(D.HALO.bet[i]); }
+  for (const i of F.gc) { lam.push(D.GCC.lam[i]); bet.push(D.GCC.bet[i]); }
+  for (const i of F.dw) { lam.push(D.DWF.lam[i]); bet.push(D.DWF.bet[i]); }
+  if (lam.length < 2) return null;
+  const [xi, eta] = C.gnomonic(Float64Array.from(lam), Float64Array.from(bet),
+    state.lam0, state.bet0);
+  return { xi, eta };
 }
 
 function coverPointings(xi, eta, r = 30, minCov = 2, cap = 300) {
@@ -215,7 +284,6 @@ function drawSources(ctx, xi, eta) {
 
   // NN match lines
   if (state.connect && F.nn && F.src.n > 1) {
-    const uvXi = new Float64Array(F.src.n), uvEta = new Float64Array(F.src.n);
     const [sxi, seta] = C.gnomonic(F.src.lam, F.src.bet, state.lam0, state.bet0);
     ctx.strokeStyle = 'rgba(224,82,82,0.45)';
     ctx.lineWidth = 0.7;
@@ -230,15 +298,16 @@ function drawSources(ctx, xi, eta) {
 
   // quasars
   if (F.qq.length) {
+    const qa = (!hilite || (hilite.type === 'kind' && hilite.kind === 1)) ? 0.9 : dimA;
     const [qx, qy] = C.gnomonic(
       Float64Array.from(F.qq, i => D.QSO.lam[i]),
       Float64Array.from(F.qq, i => D.QSO.bet[i]), state.lam0, state.bet0);
     for (let k = 0; k < F.qq.length; k++) {
       const [X, Y] = toPx(qx[k], qy[k]);
-      dot(ctx, X, Y, 4, UI.accent2, 0.9);
+      dot(ctx, X, Y, 4, UI.accent2, qa);
       ctx.strokeStyle = '#00000088'; ctx.lineWidth = 0.8;
       ctx.stroke();
-      hitList.push({ x: X, y: Y, r: 6, qso: F.qq[k], lam: D.QSO.lam[F.qq[k]], bet: D.QSO.bet[F.qq[k]] });
+      hitList.push({ x: X, y: Y, r: 6, pri: 0, qso: F.qq[k], lam: D.QSO.lam[F.qq[k]], bet: D.QSO.bet[F.qq[k]] });
     }
   }
 
@@ -254,14 +323,14 @@ function drawSources(ctx, xi, eta) {
       const r = Math.max(5, cl.radDeg[i] * 60 * px.scale);
       circleOutline(ctx, X, Y, r, UI.cloud, 1.4, [5, 4]);
       hitList.push({
-        x: X, y: Y, r: Math.min(r, 30),
+        x: X, y: Y, r: Math.min(r, 30), pri: 0,
         html: `<b>${cl.name[i]}</b> · ${cl.type[i]}<br>v_LSR ${cl.vlsr[i].toFixed(0)} · v_GSR ${cl.vgsr[i].toFixed(0)} km/s<br>size ~${(cl.radDeg[i] * 2).toFixed(1)}°`,
         lam: cl.lam[i], bet: cl.bet[i],
       });
     }
   }
 
-  // halo RR Lyrae (survey backlights; ~10% distances, excluded from rungs)
+  // halo RR Lyrae (survey backlights; pair-rule rungs)
   if (F.hh?.length) {
     const [hx, hy] = C.gnomonic(
       Float64Array.from(F.hh, i => D.HALO.lam[i]),
@@ -269,17 +338,18 @@ function drawSources(ctx, xi, eta) {
     for (let k = 0; k < F.hh.length; k++) {
       const i = F.hh[k];
       const [X, Y] = toPx(hx[k], hy[k]);
-      dot(ctx, X, Y, 4.2, UI.halo, 0.9);
+      const a = inHilite(3, null, D.HALO.dist[i]) ? 0.9 : dimA;
+      dot(ctx, X, Y, 4.2, UI.halo, a);
       ctx.strokeStyle = '#00000066'; ctx.lineWidth = 0.8; ctx.stroke();
       hitList.push({
-        x: X, y: Y, r: 6,
+        x: X, y: Y, r: 6, pri: 0,
         html: `<b>halo ${D.HALO.clsNames[D.HALO.cls[i]] || 'RRL'}</b><br>${D.HALO.dist[i].toFixed(1)} kpc (±10%)<br>G = ${D.HALO.G[i].toFixed(2)}`,
         lam: D.HALO.lam[i], bet: D.HALO.bet[i],
       });
     }
   }
 
-  // dwarf members
+  // dwarf members (same color as the dwarfs)
   if (F.mm.length) {
     const [mxA, myA] = C.gnomonic(
       Float64Array.from(F.mm, i => D.MEM.lam[i]),
@@ -287,13 +357,16 @@ function drawSources(ctx, xi, eta) {
     for (let k = 0; k < F.mm.length; k++) {
       const i = F.mm[k];
       const [X, Y] = toPx(mxA[k], myA[k]);
+      const a = inHilite(2, skey(D.MEM.name[i]), D.MEM.dist[i]);
+      ctx.globalAlpha = a ? 1 : dimA;
       starGlyph(ctx, X, Y, 4.5, UI.member, '#00000066');
-      hitList.push({ x: X, y: Y, r: 6, html: `<b>${D.MEM.name[i]}</b> member<br>${D.MEM.dist[i].toFixed(0)} kpc (galaxy)<br>G = ${D.MEM.G[i].toFixed(2)} · P=${D.MEM.pmem[i].toFixed(2)}`, lam: D.MEM.lam[i], bet: D.MEM.bet[i] });
+      ctx.globalAlpha = 1;
+      hitList.push({ x: X, y: Y, r: 6, pri: 0, html: `<b>${D.MEM.name[i]}</b> member<br>${D.MEM.dist[i].toFixed(0)} kpc (galaxy)<br>G = ${D.MEM.G[i].toFixed(2)} · P=${D.MEM.pmem[i].toFixed(2)}`, lam: D.MEM.lam[i], bet: D.MEM.bet[i] });
     }
   }
 
   // stream stars — glyphs when sparse, fast dots when dense
-  const selCode = state.stream ? D.STREAM_NAMES.indexOf(state.stream) : -1;
+  const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
   const dArr = { d: Float64Array.from(F.idx, i => D.s_dist_use[i]), G: Float64Array.from(F.idx, i => D.s_G[i]) };
   const dense = F.idx.length > 1200;
   for (let k = 0; k < F.idx.length; k++) {
@@ -301,20 +374,23 @@ function drawSources(ctx, xi, eta) {
     const [X, Y] = toPx(xi[k], eta[k]);
     const isSel = selCode < 0 || D.s_name_code[i] === selCode;
     const fill = isSel ? colorFor(dArr, k) : UI.greyStar;
+    const hl = inHilite(0, skey(D.streamName(i)), D.s_dist_use[i]);
+    ctx.globalAlpha = hl ? 1 : dimA;
     if (dense) {
       ctx.fillStyle = fill;
       ctx.fillRect(X - 1.4, Y - 1.4, 2.8, 2.8);
     } else {
       starGlyph(ctx, X, Y, rStar, fill, '#00000055');
     }
+    ctx.globalAlpha = 1;
     hitList.push({
-      x: X, y: Y, r: dense ? 3.5 : rStar + 2, star: i,
+      x: X, y: Y, r: dense ? 3.5 : rStar + 2, pri: 0, star: i,
       lam: D.s_lam[i], bet: D.s_bet[i],
     });
   }
 
-  // GCs / dwarfs (with r_h circles)
-  for (const [cat, ii, glyph, col] of [[D.GCC, F.gc, hexagram, UI.gc], [D.DWF, F.dw, diamond, UI.dwarf]]) {
+  // GCs / dwarfs (with r_h circles) — high hover priority so crowded members don't mask them
+  for (const [cat, ii, glyph, col, kk] of [[D.GCC, F.gc, hexagram, UI.gc, 'gc'], [D.DWF, F.dw, diamond, UI.dwarf, 'dwarf']]) {
     if (!ii.length) continue;
     const [ox, oy] = C.gnomonic(
       Float64Array.from(ii, i => cat.lam[i]), Float64Array.from(ii, i => cat.bet[i]),
@@ -322,6 +398,8 @@ function drawSources(ctx, xi, eta) {
     for (let k = 0; k < ii.length; k++) {
       const i = ii[k];
       const [X, Y] = toPx(ox[k], oy[k]);
+      const hl = inHilite(kk, skey(cat.name[i]), cat.dist[i]);
+      ctx.globalAlpha = hl ? 1 : dimA;
       if (cat.rh_am && Number.isFinite(cat.rh_am[i]) && cat.rh_am[i] > 0.3) {
         circleOutline(ctx, X, Y, cat.rh_am[i] * px.scale, col + '99', 1, [3, 3]);
       }
@@ -330,10 +408,11 @@ function drawSources(ctx, xi, eta) {
         s = 8 + 6 * Math.max(0, Math.min(1, (Math.log10(Math.max(cat.mass[i], 1e2)) - 3) / 6));
       }
       glyph(ctx, X, Y, s, col, '#000000aa');
+      ctx.globalAlpha = 1;
       let html = `<b>${cat.name[i]}</b><br>${cat.dist[i].toFixed(1)} kpc`;
       if (cat.mass && Number.isFinite(cat.mass[i])) html += `<br>${cat.mass[i].toExponential(1)} M☉`;
       if (cat.rh_am && Number.isFinite(cat.rh_am[i])) html += `<br>r_h = ${cat.rh_am[i].toFixed(1)}′`;
-      hitList.push({ x: X, y: Y, r: s + 3, html, lam: cat.lam[i], bet: cat.bet[i] });
+      hitList.push({ x: X, y: Y, r: s + 5, pri: 1, html, lam: cat.lam[i], bet: cat.bet[i] });
     }
   }
 }
@@ -341,10 +420,12 @@ function drawSources(ctx, xi, eta) {
 function findHit(e) {
   const r = cv.getBoundingClientRect();
   const x = e.clientX - r.left, y = e.clientY - r.top;
-  let best = null, bd = 1e9;
+  let best = null, bd = 1e9, bp = -1;
   for (const h of hitList) {
     const d = Math.hypot(h.x - x, h.y - y);
-    if (d <= h.r && d < bd) { best = h; bd = d; }
+    if (d > h.r) continue;
+    const pri = h.pri ?? 0;
+    if (pri > bp || (pri === bp && d < bd)) { best = h; bd = d; bp = pri; }
   }
   return best;
 }
@@ -359,24 +440,61 @@ function hitHtml(h) {
   return '';
 }
 
+// ---- pointer wiring: hover, dblclick-to-recenter, drag-to-pan -------------------------
+function wirePointer() {
+  let panning = false, panStart = null;
+
+  cv.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const r = cv.getBoundingClientRect();
+    panStart = {
+      x: e.clientX - r.left, y: e.clientY - r.top,
+      lam: state.lam0, bet: state.bet0,
+    };
+    panning = false;
+  });
+  cv.addEventListener('pointermove', e => {
+    if (panStart) {
+      const r = cv.getBoundingClientRect();
+      const dx = (e.clientX - r.left) - panStart.x, dy = (e.clientY - r.top) - panStart.y;
+      if (!panning && Math.hypot(dx, dy) > 4) {
+        panning = true;
+        cv.setPointerCapture(e.pointerId);
+        tipEl.style.display = 'none';
+      }
+      if (panning) {
+        // grab-the-sky: content follows the cursor, so the center moves opposite
+        const dXi = -dx / px.scale, dEta = dy / px.scale;
+        const [lo, la] = C.gnomonicInv(dXi, dEta, panStart.lam, panStart.bet);
+        setField(C.wrap180(lo), la, { live: true });
+        return;
+      }
+    }
+    hover(e);
+  });
+  cv.addEventListener('pointerup', e => {
+    if (panning) {
+      panning = false; panStart = null;
+      setField(state.lam0, state.bet0);
+      return;
+    }
+    panStart = null;
+  });
+  cv.addEventListener('dblclick', e => {
+    const r = cv.getBoundingClientRect();
+    const [xiAm, etaAm] = fromPx(e.clientX - r.left, e.clientY - r.top);
+    if (Math.hypot(xiAm, etaAm) <= state.fov / 2 * 60) {
+      const [lo, la] = C.gnomonicInv(xiAm, etaAm, state.lam0, state.bet0);
+      setField(C.wrap180(lo), la);
+    }
+  });
+}
+
 function hover(e) {
   const h = findHit(e);
   if (!h) { tipEl.style.display = 'none'; cv.style.cursor = 'crosshair'; return; }
   tipEl.innerHTML = hitHtml(h);
   tipEl.style.display = 'block';
-  tipEl.style.left = (e.clientX + 12) + 'px';
-  tipEl.style.top = (e.clientY + 10) + 'px';
+  placeTooltip(tipEl, e);
   cv.style.cursor = 'pointer';
-}
-
-function click(e) {
-  const h = findHit(e);
-  if (h) { setField(h.lam, h.bet); return; }
-  // click empty space in the circle -> recenter there
-  const r = cv.getBoundingClientRect();
-  const [xiAm, etaAm] = fromPx(e.clientX - r.left, e.clientY - r.top);
-  if (Math.hypot(xiAm, etaAm) <= state.fov / 2 * 60) {
-    const [lo, la] = C.gnomonicInv(xiAm, etaAm, state.lam0, state.bet0);
-    setField(C.wrap180(lo), la);
-  }
 }

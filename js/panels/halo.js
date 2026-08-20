@@ -10,6 +10,7 @@ let wrap, built = false;
 export function initHalo(container) {
   wrap = container;
   on('quaia', () => { built = false; maybeBuild(); });
+  on('ui', () => { built = false; maybeBuild(); });   // FOV / G-limit changes swap the shortlist
   maybeBuild();
   new ResizeObserver(() => { built = false; maybeBuild(); }).observe(container);
 }
@@ -60,12 +61,22 @@ export function maybeBuild() {
     if (nm) window.dispatchEvent(new CustomEvent('v2-goto-stream', { detail: nm }));
   });
 
-  // shortlist browser
+  // shortlist browser: the gridpoint nearest the current FOV + G limit
+  const pairs = new Map();
+  for (const c of D.CANDIDATES) pairs.set(`${c.fov}|${c.glim ?? 20}`, { fov: c.fov, glim: c.glim ?? 20 });
+  let best = null, bd = Infinity;
+  for (const p of pairs.values()) {
+    const d = Math.abs(p.fov - state.fov) * 2 + Math.abs(p.glim - state.ghi);
+    if (d < bd) { bd = d; best = p; }
+  }
+  const cands = best
+    ? D.CANDIDATES.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim)
+    : [];
   const sl = document.createElement('div');
   sl.className = 'halo-shortlist';
-  sl.innerHTML = `<div class="halo-sec">scan_fields shortlists <span class="tiny">(top-10 of 1° and 3° scans · click to fly)</span></div>`;
+  sl.innerHTML = `<div class="halo-sec">scan_fields shortlist <span class="tiny">(top-${cands.length}${best ? ` for ${best.fov}° fields at G ≤ ${best.glim}` : ''} · click to fly)</span></div>`;
   const list = document.createElement('div');
-  for (const c of D.CANDIDATES) {
+  for (const c of cands) {
     const row = document.createElement('div');
     row.className = 'cand-row';
     row.innerHTML =

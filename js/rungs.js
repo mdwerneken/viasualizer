@@ -2,14 +2,19 @@
 // field-exploration/tools/scan_fields.py, applied to the current field on the fly.
 //   * a rung = one distinct physical structure at one distance
 //   * streams need >= NMIN_SRC sources in the field; GCs/dwarfs always pass
-//   * structures within DTOL (20%) in distance collapse to one rung
+//   * halo RR Lyrae form rungs via the PAIR RULE (Matt, 8-19-26): >=2 stars within
+//     1 kpc of each other in distance AND within 1 deg on-sky
+//   * structures within DTOL (10%) in distance collapse to one rung
 //   * quasars are a single rung at infinity (>=1 quasar)
 //   * physically-single systems are merged (Sgr stream+dSph+M54+clusters, wCen, Pal 5)
+//   * everything FOLLOWS VISIBILITY: hidden catalogs contribute nothing
 import { D } from './data.js';
-import { fieldIndices, median } from './compute.js';
+import { median } from './compute.js';
 
 export const NMIN_SRC = 2;
-export const DTOL = 0.20;
+export const DTOL = 0.10;                 // was 0.20; tightened 8-19-26
+export const HALO_PAIR_DKPC = 1.0;        // halo pair rule: <= 1 kpc apart in distance
+export const HALO_PAIR_DEG = 1.0;         //                 <= 1 deg apart on-sky
 const GC_NOMINAL = 10;
 
 const MERGE = {
@@ -21,10 +26,55 @@ const MERGE = {
   'pal 5': 'Pal 5', 'palomar 5': 'Pal 5',
 };
 const skey = nm => MERGE[String(nm).trim().toLowerCase()] ?? String(nm).trim();
+export { skey };
 
-// starIdx: star indices already filtered to the field+mag limit; nQso: quasar count.
-// Returns { nRungs, groups: [[{key,dist,kind,n,label},...],...], qsoRung, tie }
-export function ladder(starIdx, lam0, bet0, radius, gLim, nQso) {
+// halo pair rule: cluster halo stars (union-find) linking pairs that satisfy both
+// the 1 kpc and 1 deg conditions; clusters with >=2 stars become rung candidates.
+function haloRungs(hh) {
+  const n = hh.length;
+  if (n < 2) return [];
+  const H = D.HALO;
+  const par = new Int32Array(n);
+  for (let i = 0; i < n; i++) par[i] = i;
+  const find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+  const D2R = Math.PI / 180;
+  const cosLim = Math.cos(HALO_PAIR_DEG * D2R);
+  const ux = new Float64Array(n), uy = new Float64Array(n), uz = new Float64Array(n);
+  const dd = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    const i = hh[k];
+    const lr = H.lam[i] * D2R, br = H.bet[i] * D2R, cb = Math.cos(br);
+    ux[k] = cb * Math.cos(lr); uy[k] = cb * Math.sin(lr); uz[k] = Math.sin(br);
+    dd[k] = H.dist[i];
+  }
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n; b++) {
+      if (Math.abs(dd[a] - dd[b]) > HALO_PAIR_DKPC) continue;
+      if (ux[a] * ux[b] + uy[a] * uy[b] + uz[a] * uz[b] < cosLim) continue;
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) par[ra] = rb;
+    }
+  }
+  const clusters = new Map();
+  for (let k = 0; k < n; k++) {
+    const r = find(k);
+    if (!clusters.has(r)) clusters.set(r, []);
+    clusters.get(r).push(dd[k]);
+  }
+  const out = [];
+  let ci = 0;
+  for (const ds of clusters.values()) {
+    if (ds.length < 2) continue;
+    out.push({ key: `halo-${ci++}`, dist: median(ds), kind: 'halo', n: ds.length, label: 'halo RRL' });
+  }
+  return out;
+}
+
+// All inputs are the fieldmodel's already-visibility-filtered collections:
+//   idx: stream-star indices; mm: dwarf-member indices; hh: halo indices;
+//   gc/dw: GC / dwarf catalog indices; nQso: quasar count.
+// Returns { nRungs, groups, qsoRung, nQso, tie, structures }
+export function ladder({ idx, mm, hh, gc, dw, nQso, gLim }) {
   const rung = new Map();   // key -> {dist, kind, n, label}
   const add = (key, d0, kind, n, label) => {
     const r = rung.get(key);
@@ -36,7 +86,7 @@ export function ladder(starIdx, lam0, bet0, radius, gLim, nQso) {
 
   // stream stars, per stream: median catalog distance
   const byStream = new Map();
-  for (const i of starIdx) {
+  for (const i of idx) {
     const nm = D.streamName(i);
     if (!byStream.has(nm)) byStream.set(nm, []);
     byStream.get(nm).push(D.s_dist_use[i]);
@@ -45,16 +95,16 @@ export function ladder(starIdx, lam0, bet0, radius, gLim, nQso) {
     const v = median(dd);
     if (Number.isFinite(v)) add(skey(nm), v, 'stream', dd.length, nm);
   }
-  // GCs / dwarfs in field
-  for (const j of fieldIndices(lam0, bet0, D.GCC.UG, radius)) {
+  // GCs / dwarfs in field (already visibility-filtered)
+  for (const j of gc) {
     if (Number.isFinite(D.GCC.dist[j])) add(skey(D.GCC.name[j]), D.GCC.dist[j], 'GC', GC_NOMINAL, D.GCC.name[j]);
   }
-  for (const j of fieldIndices(lam0, bet0, D.DWF.UG, radius)) {
+  for (const j of dw) {
     if (Number.isFinite(D.DWF.dist[j])) add(skey(D.DWF.name[j]), D.DWF.dist[j], 'dwarf', GC_NOMINAL, D.DWF.name[j]);
   }
   // dwarf member stars (respect mag limit like scan_fields' G<=GLIM pool)
   const memByGal = new Map();
-  for (const j of fieldIndices(lam0, bet0, D.MEM.UG, radius)) {
+  for (const j of mm) {
     const g = D.MEM.G[j];
     if (Number.isFinite(g) && g <= gLim) {
       const nm = D.MEM.name[j];
@@ -66,6 +116,8 @@ export function ladder(starIdx, lam0, bet0, radius, gLim, nQso) {
 
   // gate: streams need NMIN_SRC sources; GCs/dwarfs always pass
   const kept = [...rung.values()].filter(r => r.n >= NMIN_SRC || r.kind === 'GC' || r.kind === 'dwarf');
+  // halo RR Lyrae rungs via the pair rule (hh empty when the catalog is hidden)
+  kept.push(...haloRungs(hh ?? []));
   // collapse structures at the same distance (DTOL fractional tolerance, sorted)
   kept.sort((a, b) => a.dist - b.dist);
   const groups = [];

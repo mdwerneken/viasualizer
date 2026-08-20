@@ -1,22 +1,25 @@
-// three.js scene: 80k catalog stars as GPU points (positions uploaded once; colour/
+// three.js scene: 80k catalog stars as GPU points (positions uploaded once; color/
 // size buffers rewritten in-place on state changes), object catalogs, galactic disk,
-// Sun, HI shell, Kepler cone, and a mesh-based field pointer that can be dragged.
-// No GL line primitives anywhere (macOS/ANGLE renders them unreliably).
+// Sun, HI shell, survey + telescope cones, and a mesh-based field pointer that can be
+// dragged. No GL line primitives anywhere (macOS/ANGLE renders them unreliably).
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { D } from './data.js';
-import { state, setField, on, galField } from './state.js';
+import { state, setField, slideField, on, emit, galField } from './state.js';
 import * as C from './compute.js';
-import { UI, scales, streamColor, HEMI_COL, hexToRgb01 } from './colors.js';
+import { UI, scales, streamColor, HEMI_COL, HEMI_LBL, hexToRgb01 } from './colors.js';
 
 let renderer, scene, camera, controls, raycaster;
 let starPts, starGeom, colAttr, sizeAttr;
 let gcPts, dwfPts, memPts, haloPts = null;
 let pointer = {};            // shaft, tip, ring, hitProxy groups
-let hiSphere = null, keplerCone = null, disk, sunMesh, gridGroup;
+let hiSphere = null, conesGroup = null, hemiConesGroup = null, disk, sunMesh, gridGroup;
 let SUN;
 let needsRender = true;
-let hoverInfo = null;
+let cbarEl = null;
+let pinLayer = null;
+const pins = [];             // [{kind, i, el, pos:Vector3}]
+const ARROW_LEN = 15;        // constant arrow length [kpc] (Matt 8-19-26)
 const _tmpV = new THREE.Vector3();
 
 const STAR_VS = `
@@ -43,10 +46,22 @@ const STAR_FS = `
     gl_FragColor = vec4(vColor, vAlpha * soft);
     if (gl_FragColor.a < 0.01) discard;
   }`;
+// diamond sprite (dwarf galaxies — matches the finder-chart glyph)
+const DIAMOND_FS = `
+  varying float vAlpha;
+  varying vec3 vColor;
+  void main() {
+    vec2 c = abs(gl_PointCoord - 0.5);
+    float m = c.x + c.y;
+    if (m > 0.5) discard;
+    float soft = smoothstep(0.5, 0.38, m);
+    gl_FragColor = vec4(vColor, vAlpha * soft);
+    if (gl_FragColor.a < 0.01) discard;
+  }`;
 
-function makePointsMaterial() {
+function makePointsMaterial(fs = STAR_FS) {
   return new THREE.ShaderMaterial({
-    vertexShader: STAR_VS, fragmentShader: STAR_FS,
+    vertexShader: STAR_VS, fragmentShader: fs,
     transparent: true, depthWrite: false,
   });
 }
@@ -62,7 +77,7 @@ export function initScene(container) {
   camera = new THREE.PerspectiveCamera(45, 1, 0.5, 4000);
   camera.up.set(0, 0, 1);
   const camDir = new THREE.Vector3(1.12, 1.12, 0.72).normalize();
-  camera.position.copy(SUN.clone().add(camDir.multiplyScalar(state.zoom * 2.6)));
+  camera.position.copy(SUN.clone().add(camDir.multiplyScalar(160)));
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.target.copy(SUN);
@@ -84,7 +99,10 @@ export function initScene(container) {
   buildGrid();
   buildObjectCatalogs();
   buildPointer();
-  buildKepler();
+  buildCones();
+  buildHemiCones();
+  buildColorbar(container);
+  buildPinLayer(container);
 
   wirePicking(container);
   resize(container);
@@ -92,6 +110,7 @@ export function initScene(container) {
 
   on('field', () => { updatePointer(); needsRender = true; });
   on('ui', () => { restyle(); needsRender = true; });
+  on('lock', () => { updatePointer(); needsRender = true; });
   on('quaia', () => { needsRender = true; });
   on('halo', () => { buildHaloPoints(); needsRender = true; });
 
@@ -114,6 +133,7 @@ function animate() {
   const moved = controls.update();
   if (needsRender || moved) {
     renderer.render(scene, camera);
+    placePins();
     needsRender = false;
   }
 }
@@ -140,7 +160,7 @@ function buildStars() {
   scene.add(starPts);
 }
 
-// recolour + resize the star cloud from current state — typed-array writes only
+// recolor + resize the star cloud from current state — typed-array writes only
 export function restyle() {
   const n = D.N;
   const col = colAttr.array, sz = sizeAttr.array, al = starGeom.alphaAttr.array;
@@ -148,11 +168,12 @@ export function restyle() {
   const distLo = D.DIST_MIN, distSpan = D.DIST_MAX - D.DIST_MIN;
   const densMax = D.DENS_CMAX;
   const grey = hexToRgb01(UI.greyStar), out = hexToRgb01(UI.outRange);
-  const selCode = state.stream ? D.STREAM_NAMES.indexOf(state.stream) : -1;
+  const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
   const hemiRgb = [hexToRgb01(HEMI_COL[0]), hexToRgb01(HEMI_COL[1]), hexToRgb01(HEMI_COL[2])];
   const palRgb = [];
   for (let c = 0; c < 20; c++) palRgb.push(hexToRgb01(streamColor(c)));
 
+  starPts.visible = state.streamsOn;
   for (let i = 0; i < n; i++) {
     const g = D.s_G[i];
     const inR = g >= glo && g <= ghi;
@@ -161,7 +182,6 @@ export function restyle() {
     const isSel = selCode < 0 || code === selCode;
     let hide = false;
     if (state.via && !isVia) hide = true;
-    if (state.isolate && selCode >= 0 && code !== selCode) hide = true;
     if (state.hide && !inR) hide = true;
     if (hide) { al[i] = 0; sz[i] = 0; continue; }
 
@@ -201,9 +221,10 @@ export function restyle() {
   starGeom.alphaAttr.needsUpdate = true;
 
   restyleObjects();
-  if (keplerCone) keplerCone.visible = state.kepler;
+  restyleCones();
   updateHiSphere();
   updateChrome();
+  drawColorbar();
   needsRender = true;
 }
 
@@ -227,14 +248,15 @@ function buildSun() {
 }
 
 function buildGrid() {
-  // subtle box frame around the plotted volume (Sun-centred cube, +-MAXR)
+  // reference box around the Sun (checkbox-controlled, ±BOX_R = 100 kpc)
   gridGroup = new THREE.Group();
-  const R = D.MAXR;
+  const R = D.BOX_R;
   const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(UI.grid) });
+  gridGroup.userData.mat = mat;
   const edge = (a, b) => {
     const dir = new THREE.Vector3().subVectors(b, a);
     const len = dir.length();
-    const geo = new THREE.CylinderGeometry(0.06, 0.06, len, 5);
+    const geo = new THREE.CylinderGeometry(0.09, 0.09, len, 5);
     geo.translate(0, len / 2, 0);
     const m = new THREE.Mesh(geo, mat);
     m.position.copy(a);
@@ -250,8 +272,8 @@ function buildGrid() {
   scene.add(gridGroup);
 }
 
-function buildKepler() {
-  keplerCone = new THREE.Group();
+function buildCones() {
+  conesGroup = new THREE.Group();
   for (const cone of D.CONES) {
     const kd = C.matVec(D.RG_GAL2GC, C.unitVector1(cone.l, cone.b));
     const dir = new THREE.Vector3(...kd).normalize();
@@ -267,20 +289,59 @@ function buildKepler() {
     const m = new THREE.Mesh(geo, mat);
     m.position.copy(SUN);
     m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    keplerCone.add(m);
+    m.userData = { kind: 'cone', cone };
+    conesGroup.add(m);
   }
-  scene.add(keplerCone);
+  scene.add(conesGroup);
+}
+
+// telescope visibility cones: boundary surfaces of the declination rule
+//   dec > SITES.Magellan + (90 - ALT_MIN)  -> MMT-only  (north cone, blue)
+//   dec < SITES.MMT      - (90 - ALT_MIN)  -> Magellan-only (south cone, amber)
+function buildHemiCones() {
+  hemiConesGroup = new THREE.Group();
+  const ncpGC = new THREE.Vector3(...C.matVec(D.R_ICRS2GC, [0, 0, 1])).normalize();
+  const window_ = 90 - D.ALT_MIN;
+  const defs = [
+    { dec: D.SITES['Magellan (Chile)'] + window_, axis: ncpGC.clone(), color: '#7fb8f0' },
+    { dec: D.SITES['MMT (Arizona)'] - window_, axis: ncpGC.clone().negate(), color: '#e0c07f' },
+  ];
+  for (const d of defs) {
+    const half = (90 - Math.abs(d.dec)) * Math.PI / 180;
+    const len = 40;
+    const rBase = len * Math.tan(half);
+    const geo = new THREE.ConeGeometry(rBase, len, 64, 1, true);
+    geo.translate(0, -len / 2, 0);
+    geo.rotateX(Math.PI);
+    const mat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(d.color), transparent: true, opacity: 0.07,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.copy(SUN);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.axis);
+    hemiConesGroup.add(m);
+  }
+  hemiConesGroup.visible = state.hemiCones;
+  scene.add(hemiConesGroup);
+}
+
+function restyleCones() {
+  if (!conesGroup) return;
+  for (const m of conesGroup.children) m.visible = !!state[m.userData.cone.key];
+  if (hemiConesGroup) hemiConesGroup.visible = state.hemiCones;
 }
 
 // ---- object catalogs (GCs, dwarfs, members) ---------------------------------------
-function catPoints(cat, colorHex, sizePx, kind) {
+function catPoints(cat, colorHex, sizePx, kind, fs = STAR_FS) {
   const n = cat.lam.length;
   const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
   const sz = new Float32Array(n), al = new Float32Array(n);
   const [r, g, b] = hexToRgb01(colorHex);
-  const R = D.MAXR;
+  const R = D.BOX_R;
+  const base = new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    // park objects beyond the box on the box edge along the sightline (v1 behaviour)
+    // park objects beyond the volume on its edge along the sightline (v1 behaviour)
     const vx = cat.X[i] - SUN.x, vy = cat.Y[i] - SUN.y, vz = cat.Z[i] - SUN.z;
     const rr = Math.hypot(vx, vy, vz) || 1;
     const f = Math.min(1, R / rr);
@@ -291,6 +352,7 @@ function catPoints(cat, colorHex, sizePx, kind) {
       const m = Number.isFinite(cat.mass[i]) && cat.mass[i] > 0 ? cat.mass[i] : 1e2;
       s = sizePx + 5 * Math.max(0, Math.min(1, (Math.log10(Math.max(m, 1e2)) - 3) / 6));
     }
+    base[i] = s;
     sz[i] = s; al[i] = 0.95;
   }
   const geo = new THREE.BufferGeometry();
@@ -300,24 +362,47 @@ function catPoints(cat, colorHex, sizePx, kind) {
   const alphaAttr = new THREE.BufferAttribute(al, 1);
   geo.setAttribute('alpha', alphaAttr);
   geo.alphaAttr = alphaAttr;
-  const pts = new THREE.Points(geo, makePointsMaterial());
+  const pts = new THREE.Points(geo, makePointsMaterial(fs));
   pts.frustumCulled = false;
-  pts.userData.kind = kind;
+  pts.userData = { kind, colorHex, baseSize: base };
   scene.add(pts);
   return pts;
 }
 
 function buildObjectCatalogs() {
   gcPts = catPoints(D.GCC, UI.gc, 6.5, 'gc');
-  dwfPts = catPoints(D.DWF, UI.dwarf, 6.5, 'dwarf');
+  // dwarf galaxies: diamond sprite + larger, matching the finder glyph (Matt 8-19-26)
+  dwfPts = catPoints(D.DWF, UI.dwarf, 10.5, 'dwarf', DIAMOND_FS);
   memPts = catPoints(D.MEM, UI.member, 2.4, 'member');
+}
+
+// grey-out unselected objects of the same type when a highlight selection is active
+function tintCat(pts, cat, selIdx, selName = null) {
+  const geo = pts.geometry;
+  const col = geo.getAttribute('color').array;
+  const al = geo.alphaAttr.array;
+  const n = cat.lam.length;
+  const [r, g, b] = hexToRgb01(pts.userData.colorHex);
+  const [gr, gg, gb] = hexToRgb01(UI.greyStar);
+  const active = selIdx !== null || selName !== null;
+  for (let i = 0; i < n; i++) {
+    const isSel = !active || i === selIdx || (selName !== null && cat.name[i] === selName);
+    col[3 * i] = isSel ? r : gr; col[3 * i + 1] = isSel ? g : gg; col[3 * i + 2] = isSel ? b : gb;
+    al[i] = isSel ? 0.95 : 0.4;
+  }
+  geo.getAttribute('color').needsUpdate = true;
+  geo.alphaAttr.needsUpdate = true;
 }
 
 function restyleObjects() {
   gcPts.visible = state.gcOn;
   dwfPts.visible = state.dgOn;
-  memPts.visible = state.memOn;
+  memPts.visible = state.dgOn && state.memOn;
   if (haloPts) haloPts.visible = state.haloOn;
+  tintCat(gcPts, D.GCC, state.hlGC ? state.gcSel : null);
+  tintCat(dwfPts, D.DWF, state.hlDwarf ? state.dwarfSel : null);
+  const dwName = (state.hlDwarf && state.dwarfSel !== null) ? D.DWF.name[state.dwarfSel] : null;
+  tintCat(memPts, D.MEM, null, dwName);
 }
 
 // halo RR Lyrae: geometry built from galactic (l,b) + dist when the file arrives
@@ -352,6 +437,8 @@ function buildHaloPoints() {
 }
 
 // ---- HI shell ----------------------------------------------------------------------
+// Custom lat-lon sphere: vertices placed directly at galactic (l,b) -> galactocentric
+// directions, so the texture (plate carree in l,b) maps exactly — no rotation guessing.
 function hiTexture() {
   const w = 720, h = 360;
   const cv = document.createElement('canvas');
@@ -365,11 +452,8 @@ function hiTexture() {
   vals.sort((a, b) => a - b);
   const v0 = C.quantileSorted(vals, 0.05), v1 = C.quantileSorted(vals, 0.99);
   for (let y = 0; y < h; y++) {
-    // texture v: 0 at top = +90 lat; equirect sphere map
-    const bb = 90 - (y + 0.5) * 180 / h;
+    const bb = 90 - (y + 0.5) * 180 / h;         // row 0 = +90 (texture top)
     for (let x = 0; x < w; x++) {
-      // sphere u wraps: u=0 at lon 180 going through -180.. standard three.js sphere:
-      // u=0.5 -> -z.. we align via mesh rotation; here use l = -180 + x*step
       const ll = -180 + (x + 0.5) * 360 / w;
       const v = C.hiSample(grid, D.HI_NY, D.HI_NX, D.HI_STEP, ll, bb);
       const p = 4 * (y * w + x);
@@ -377,13 +461,45 @@ function hiTexture() {
       const t = Math.max(0, Math.min(1, (v - v0) / (v1 - v0 || 1)));
       const [r, g, b] = scale.rgb(t);
       img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b;
-      img.data[p + 3] = 150;
+      img.data[p + 3] = 170;
     }
   }
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+function hiShellGeometry(R = 10, nl = 96, nb = 48) {
+  const geo = new THREE.BufferGeometry();
+  const nv = (nl + 1) * (nb + 1);
+  const pos = new Float32Array(nv * 3), uv = new Float32Array(nv * 2);
+  let k = 0;
+  for (let ib = 0; ib <= nb; ib++) {
+    const b = -90 + 180 * ib / nb;
+    for (let il = 0; il <= nl; il++) {
+      const l = -180 + 360 * il / nl;
+      const d = C.matVec(D.RG_GAL2GC, C.unitVector1(l, b));
+      pos[3 * k] = SUN.x + R * d[0];
+      pos[3 * k + 1] = SUN.y + R * d[1];
+      pos[3 * k + 2] = SUN.z + R * d[2];
+      uv[2 * k] = il / nl;                 // u: l = -180 .. 180
+      uv[2 * k + 1] = ib / nb;             // v: b = -90 (bottom) .. +90 (top, flipY)
+      k++;
+    }
+  }
+  const idx = [];
+  for (let ib = 0; ib < nb; ib++) {
+    for (let il = 0; il < nl; il++) {
+      const a = ib * (nl + 1) + il, b2 = a + nl + 1;
+      idx.push(a, b2, a + 1, a + 1, b2, b2 + 1);
+    }
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 function updateHiSphere() {
@@ -394,36 +510,128 @@ function updateHiSphere() {
   const key = state.himap;
   if (!hiSphere || hiSphere.userData.key !== key) {
     if (hiSphere) { scene.remove(hiSphere); hiSphere.geometry.dispose(); hiSphere.material.map?.dispose(); }
-    const geo = new THREE.SphereGeometry(10, 72, 36);
     const mat = new THREE.MeshBasicMaterial({
-      map: hiTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      map: hiTexture(), transparent: true, depthWrite: false, side: THREE.BackSide,
     });
-    hiSphere = new THREE.Mesh(geo, mat);
+    hiSphere = new THREE.Mesh(hiShellGeometry(10), mat);
     hiSphere.userData.key = key;
-    // three.js sphere UV: u=0 at +x?? Actually u wraps with atan2(z, x); we need
-    // galactic frame: build rotation taking the sphere's native frame to GC frame.
-    // Native sphere: lat from +y axis?? — three sphere: y = cos(phi), equator in xz.
-    // We remap: galactic z_gal -> +y (poles), l=0 -> ... Compose from RG_GAL2GC.
-    const M = D.RG_GAL2GC;
-    const m4 = new THREE.Matrix4().set(
-      // columns are images of gal x,y,z axes; sphere native: lon around y-up.
-      // map sphere axes (x_s, y_s, z_s) so that: y_s -> gal z, x_s -> gal l=180, z_s -> gal l=-90
-      M[0][0], M[0][2], M[0][1], 0,
-      M[1][0], M[1][2], M[1][1], 0,
-      M[2][0], M[2][2], M[2][1], 0,
-      0, 0, 0, 1);
-    hiSphere.setRotationFromMatrix(m4);
-    hiSphere.position.copy(SUN);
+    hiSphere.renderOrder = -5;             // draw first: no popping against the points
     scene.add(hiSphere);
   }
   hiSphere.visible = true;
 }
 
-// ---- chrome (clean mode) -----------------------------------------------------------
+// ---- chrome (theme, box, disk) -----------------------------------------------------
 function updateChrome() {
-  const showChrome = !state.clean;
-  gridGroup.visible = showChrome;
-  renderer.setClearColor(new THREE.Color(state.clean ? '#ffffff' : UI.bg));
+  const light = state.theme === 'light';
+  gridGroup.visible = state.boxOn;
+  gridGroup.userData.mat.color.set(light ? '#b9c2d0' : UI.grid);
+  disk.visible = state.diskOn;
+  renderer.setClearColor(new THREE.Color(light ? '#ffffff' : UI.bg));
+}
+
+// ---- colorbar overlay (upper-right of the 3D view) -----------------------------------
+function buildColorbar(container) {
+  cbarEl = document.createElement('canvas');
+  cbarEl.id = 'cbar3d';
+  container.appendChild(cbarEl);
+}
+
+function drawColorbar() {
+  if (!cbarEl) return;
+  const light = state.theme === 'light';
+  const W = 64, H = 210;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  cbarEl.width = W * dpr; cbarEl.height = H * dpr;
+  cbarEl.style.width = W + 'px'; cbarEl.style.height = H + 'px';
+  const ctx = cbarEl.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const txt = light ? '#3a4150' : '#c6cede';
+  if (state.mode === 'stream') { cbarEl.style.display = 'none'; return; }
+  cbarEl.style.display = 'block';
+
+  if (state.mode === 'hemi') {
+    ctx.font = '10px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = txt;
+    ctx.fillText('visibility', 4, 12);
+    [2, 1, 0].forEach((k, row) => {
+      ctx.fillStyle = HEMI_COL[k];
+      ctx.fillRect(6, 24 + row * 20, 12, 12);
+      ctx.fillStyle = txt;
+      ctx.fillText(HEMI_LBL[k], 24, 34 + row * 20);
+    });
+    return;
+  }
+  const conf = {
+    dist: { scale: scales.dist, lo: D.DIST_MIN, hi: D.DIST_MAX, lab: 'dist [kpc]' },
+    mag: { scale: scales.mag, lo: state.glo, hi: state.ghi, lab: 'Gaia G' },
+    dens: { scale: scales.dens, lo: 0, hi: D.DENS_CMAX, lab: 'density' },
+  }[state.mode];
+  if (!conf) { cbarEl.style.display = 'none'; return; }
+  const bx = 8, by = 22, bw = 12, bh = H - by - 10;
+  for (let k = 0; k < bh; k++) {
+    ctx.fillStyle = conf.scale.css(1 - k / (bh - 1));    // top = max
+    ctx.fillRect(bx, by + k, bw, 1.2);
+  }
+  ctx.strokeStyle = light ? '#9aa3b2' : '#3a4458';
+  ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
+  ctx.font = '9.5px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = txt;
+  ctx.fillText(conf.lab, 4, 12);
+  for (let t = 0; t < 5; t++) {
+    const v = conf.hi - (conf.hi - conf.lo) * t / 4;
+    const y = by + bh * t / 4;
+    ctx.fillRect(bx + bw, y - 0.5, 3, 1);
+    const s = Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1);
+    ctx.fillText(s, bx + bw + 5, y + 3);
+  }
+}
+
+// ---- pinned object labels (single click toggles; multiple allowed) --------------------
+function buildPinLayer(container) {
+  pinLayer = document.createElement('div');
+  pinLayer.id = 'pin-layer';
+  container.appendChild(pinLayer);
+}
+
+function pinKey(p) { return `${p.kind}:${p.i}`; }
+
+function togglePin(p) {
+  const key = pinKey(p);
+  const at = pins.findIndex(q => pinKey(q) === key);
+  if (at >= 0) {
+    pins[at].el.remove();
+    pins.splice(at, 1);
+  } else {
+    const el = document.createElement('div');
+    el.className = 'pin3d';
+    el.innerHTML = objectHtml(p);
+    el.addEventListener('click', () => togglePin(p));
+    pinLayer.appendChild(el);
+    pins.push({ ...p, el, pos: objectWorldPos(p) });
+  }
+  needsRender = true;
+}
+
+function objectWorldPos(p) {
+  const v = new THREE.Vector3();
+  const src = { star: starPts, gc: gcPts, dwarf: dwfPts, member: memPts, halo: haloPts }[p.kind];
+  if (!src) return v;
+  const a = src.geometry.getAttribute('position');
+  return v.set(a.getX(p.i), a.getY(p.i), a.getZ(p.i));
+}
+
+function placePins() {
+  if (!pins.length) return;
+  const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+  for (const p of pins) {
+    _tmpV.copy(p.pos).project(camera);
+    if (_tmpV.z > 1) { p.el.style.display = 'none'; continue; }
+    p.el.style.display = 'block';
+    p.el.style.left = ((_tmpV.x + 1) / 2 * w + 10) + 'px';
+    p.el.style.top = ((-_tmpV.y + 1) / 2 * h - 8) + 'px';
+  }
 }
 
 // ---- field pointer -------------------------------------------------------------------
@@ -434,27 +642,31 @@ function fieldDir3() {
   return new THREE.Vector3(...v).normalize();
 }
 
-function pointerTipDist() {
-  // distance of nearest Sgr star in field (>=10), like v1's dtip
-  const idx = C.fieldIndices(state.lam0, state.bet0, D.UG_SGR, state.fov / 2);
-  let best = Infinity;
-  for (const i of idx) {
-    if (D.streamName(i) !== 'Sagittarius') continue;
-    const dx = D.s_X[i] - SUN.x, dy = D.s_Y[i] - SUN.y, dz = D.s_Z[i] - SUN.z;
-    const r = Math.hypot(dx, dy, dz);
-    if (r < best) best = r;
+// constant 15 kpc arrow; locked on an object -> ~20% short of the object's distance
+// (streams: tracks the stream stars around the current field as we scan along it)
+function pointerLen() {
+  const L = state.lock;
+  if (L) {
+    if (L.kind === 'stream') {
+      const idx = C.fieldIndices(state.lam0, state.bet0, D.UG_SGR, Math.max(state.fov / 2, 1.0));
+      const ds = [];
+      for (const i of idx) if (D.streamName(i) === L.id) ds.push(D.s_dist_use[i]);
+      const m = C.median(ds);
+      if (Number.isFinite(m)) return Math.max(3, 0.8 * Math.min(m, D.BOX_R));
+    } else if (Number.isFinite(L.dist)) {
+      return Math.max(3, 0.8 * Math.min(L.dist, D.BOX_R));
+    }
   }
-  if (!Number.isFinite(best)) best = 14;
-  return Math.max(best, 12);
+  return ARROW_LEN;
 }
 
 function buildPointer() {
   const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff4545') });
-  const shaftGeo = new THREE.CylinderGeometry(0.26, 0.26, 1, 8);
-  shaftGeo.translate(0, 0.5, 0);        // base at origin, extends +y
+  const shaftGeo = new THREE.CylinderGeometry(1, 1, 1, 8);
+  shaftGeo.translate(0, 0.5, 0);        // base at origin, extends +y; unit radius/length
   pointer.shaft = new THREE.Mesh(shaftGeo, mat);
-  const tipGeo = new THREE.ConeGeometry(0.9, 2.6, 12);
-  tipGeo.translate(0, 0.8, 0);
+  const tipGeo = new THREE.ConeGeometry(1, 1, 12);   // unit; scaled in updatePointer
+  tipGeo.translate(0, 0.5, 0);
   pointer.tip = new THREE.Mesh(tipGeo, mat.clone());
   pointer.ring = new THREE.Mesh(
     new THREE.TorusGeometry(1, 0.14, 8, 64),
@@ -468,31 +680,40 @@ function buildPointer() {
 
 export function updatePointer() {
   const dir = fieldDir3();
-  const dtip = pointerTipDist();
+  const len = pointerLen();
   const up = new THREE.Vector3(0, 1, 0);
+  // arrowhead scales with arrow length; default smaller than the old fixed head
+  const tipLen = Math.max(0.7, len * 0.085);
+  const tipRad = tipLen * 0.34;
+  const shaftRad = Math.max(0.10, len * 0.013);
+  const shaftLen = len - tipLen;
   pointer.shaft.position.copy(SUN);
-  pointer.shaft.scale.set(1, dtip * 0.96, 1);
+  pointer.shaft.scale.set(shaftRad, shaftLen, shaftRad);
   pointer.shaft.quaternion.setFromUnitVectors(up, dir);
-  const tipPos = SUN.clone().add(dir.clone().multiplyScalar(dtip * 0.96));
-  pointer.tip.position.copy(tipPos);
+  pointer.tip.position.copy(SUN.clone().add(dir.clone().multiplyScalar(shaftLen)));
+  pointer.tip.scale.set(tipRad, tipLen, tipRad);
   pointer.tip.quaternion.setFromUnitVectors(up, dir);
-  const rad = dtip * Math.tan((state.fov / 2) * Math.PI / 180);
-  const ringPos = SUN.clone().add(dir.clone().multiplyScalar(dtip));
+  // the field-size circle sits 1 kpc beyond the arrow tip
+  const ringDist = len + 1;
+  const rad = ringDist * Math.tan((state.fov / 2) * Math.PI / 180);
+  const ringPos = SUN.clone().add(dir.clone().multiplyScalar(ringDist));
   pointer.ring.position.copy(ringPos);
   pointer.ring.scale.set(rad, rad, 1);
   pointer.ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
   pointer.hit.position.copy(ringPos);
-  pointer.hit.scale.setScalar(Math.max(rad * 1.6, dtip * 0.14, 2.5));
-  pointer.userData = { dtip };
+  pointer.hit.scale.setScalar(Math.max(rad * 1.6, len * 0.14, 2.0));
+  pointer.userData = { len };
   needsRender = true;
 }
 
-// ---- picking: hover tooltips, click-to-recenter, drag-the-pointer --------------------
+// ---- picking: hover tooltips, click-to-pin, dblclick-to-recenter, drag-the-pointer ----
 function wirePicking(container) {
   const el = renderer.domElement;
   let dragging = false;
   let downXY = null;
+  let clickTimer = null;
   const dragSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+  let dragRadius = ARROW_LEN;
 
   const ndc = (e) => {
     const r = el.getBoundingClientRect();
@@ -508,7 +729,7 @@ function wirePicking(container) {
   function dragToField(e) {
     raycaster.setFromCamera(ndc(e), camera);
     dragSphere.center.copy(SUN);
-    dragSphere.radius = pointer.userData.dtip || 25;
+    dragSphere.radius = dragRadius;      // CONSTANT during a drag: no projection jumps
     const hit = new THREE.Vector3();
     if (!raycaster.ray.intersectSphere(dragSphere, hit)) {
       // behind the sphere: project ray direction from Sun
@@ -523,9 +744,11 @@ function wirePicking(container) {
   }
 
   el.addEventListener('pointerdown', (e) => {
+    clearTimeout(clickTimer);          // a second click cancels any pending pin toggle
     downXY = [e.clientX, e.clientY];
     if (e.button === 0 && pickPointer(e)) {
       dragging = true;
+      dragRadius = pointer.userData.len || ARROW_LEN;
       controls.enabled = false;
       el.setPointerCapture(e.pointerId);
       e.preventDefault();
@@ -542,32 +765,66 @@ function wirePicking(container) {
       setField(state.lam0, state.bet0);   // final (non-live) update
       return;
     }
-    // click-to-recenter: only if it wasn't an orbit drag
+    // single click: toggle a pinned info label (dblclick cancels it and recenters)
     if (downXY && Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) < 5 && e.button === 0) {
-      clickRecenter(e);
+      const p = pickAll(e);
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => { if (p) togglePin(p); }, 260);
     }
     downXY = null;
+  });
+  el.addEventListener('dblclick', (e) => {
+    clearTimeout(clickTimer);
+    const p = pickAll(e);
+    if (p) { dblRecenter(p); return; }
+    // no object: maybe a survey cone
+    raycaster.setFromCamera(ndc(e), camera);
+    const hits = raycaster.intersectObjects(conesGroup.children.filter(m => m.visible), false);
+    if (hits.length) {
+      window.dispatchEvent(new CustomEvent('v2-goto-cone', { detail: hits[0].object.userData.cone.key }));
+    }
   });
   el.addEventListener('pointerleave', () => setHover(null));
 
   function pickAll(e) {
     raycaster.setFromCamera(ndc(e), camera);
-    const targets = [starPts];
+    const targets = [];
+    if (state.streamsOn) targets.push(starPts);
     if (state.gcOn) targets.push(gcPts);
     if (state.dgOn) targets.push(dwfPts);
-    if (state.memOn) targets.push(memPts);
+    if (state.dgOn && state.memOn) targets.push(memPts);
+    if (state.haloOn && haloPts) targets.push(haloPts);
     const hits = raycaster.intersectObjects(targets, false);
     for (const h of hits) {
       const kind = h.object.userData.kind;
       const i = h.index;
-      if (kind === 'star') {
-        if (starGeom.alphaAttr.array[i] <= 0.01) continue;
-        return { kind, i };
-      }
-      if (kind === 'gc' && !state.gcOn) continue;
+      if (kind === 'star' && starGeom.alphaAttr.array[i] <= 0.01) continue;
       return { kind, i };
     }
     return null;
+  }
+
+  function dblRecenter(p) {
+    let lam, bet, lock = null;
+    if (p.kind === 'star') {
+      lam = D.s_lam[p.i]; bet = D.s_bet[p.i];
+      lock = { kind: 'star', id: p.i, name: D.streamName(p.i), dist: D.s_dist_use[p.i] };
+    } else if (p.kind === 'gc') {
+      lam = D.GCC.lam[p.i]; bet = D.GCC.bet[p.i];
+      lock = { kind: 'gc', id: p.i, name: D.GCC.name[p.i], dist: D.GCC.dist[p.i] };
+    } else if (p.kind === 'dwarf') {
+      lam = D.DWF.lam[p.i]; bet = D.DWF.bet[p.i];
+      lock = { kind: 'dwarf', id: p.i, name: D.DWF.name[p.i], dist: D.DWF.dist[p.i] };
+    } else if (p.kind === 'member') {
+      lam = D.MEM.lam[p.i]; bet = D.MEM.bet[p.i];
+      lock = { kind: 'star', id: p.i, name: `${D.MEM.name[p.i]} member`, dist: D.MEM.dist[p.i] };
+    } else if (p.kind === 'halo') {
+      lam = D.HALO.lam[p.i]; bet = D.HALO.bet[p.i];
+      lock = { kind: 'star', id: p.i, name: 'halo RRL', dist: D.HALO.dist[p.i] };
+    } else return;
+    state.lock = lock;
+    emit('lock');
+    slideField(lam, bet, { keepLock: true });
   }
 
   let hoverTimer = null;
@@ -576,46 +833,52 @@ function wirePicking(container) {
     hoverTimer = setTimeout(() => { hoverTimer = null; }, 40);
     setHover(pickAll(e), e);
   }
+}
 
-  function clickRecenter(e) {
-    const p = pickAll(e);
-    if (!p) return;
-    if (p.kind === 'star') setField(D.s_lam[p.i], D.s_bet[p.i]);
-    else if (p.kind === 'gc') setField(D.GCC.lam[p.i], D.GCC.bet[p.i]);
-    else if (p.kind === 'dwarf') setField(D.DWF.lam[p.i], D.DWF.bet[p.i]);
-    else if (p.kind === 'member') setField(D.MEM.lam[p.i], D.MEM.bet[p.i]);
+function objectHtml(p) {
+  if (p.kind === 'star') {
+    const known = D.s_dist_known[p.i] ? '' : ' (geom.)';
+    return `<b>${D.streamName(p.i)}</b><br>${D.s_dist_use[p.i].toFixed(1)} kpc${known}<br>G = ${D.s_G[p.i].toFixed(2)}`;
   }
+  if (p.kind === 'gc') {
+    const c = D.GCC;
+    let html = `<b>${c.name[p.i]}</b> · GC<br>${c.dist[p.i].toFixed(1)} kpc`;
+    if (Number.isFinite(c.mass?.[p.i])) html += `<br>${c.mass[p.i].toExponential(1)} M☉`;
+    return html;
+  }
+  if (p.kind === 'dwarf') {
+    const c = D.DWF;
+    return `<b>${c.name[p.i]}</b> · dwarf<br>${c.dist[p.i].toFixed(1)} kpc`;
+  }
+  if (p.kind === 'member') {
+    const c = D.MEM;
+    return `<b>${c.name[p.i]}</b> member<br>${c.dist[p.i].toFixed(0)} kpc (galaxy)<br>G = ${c.G[p.i].toFixed(2)}`;
+  }
+  if (p.kind === 'halo') {
+    const H = D.HALO;
+    return `<b>halo ${H.clsNames[H.cls[p.i]] || 'RRL'}</b><br>${H.dist[p.i].toFixed(1)} kpc (±10%)<br>G = ${H.G[p.i].toFixed(2)}`;
+  }
+  return '';
 }
 
 function setHover(p, e) {
   const tip = document.getElementById('tooltip3d');
   if (!p) { tip.style.display = 'none'; document.body.style.cursor = ''; return; }
-  let html = '';
-  if (p.kind === 'star') {
-    const known = D.s_dist_known[p.i] ? '' : ' (geom.)';
-    html = `<b>${D.streamName(p.i)}</b><br>${D.s_dist_use[p.i].toFixed(1)} kpc${known}<br>G = ${D.s_G[p.i].toFixed(2)}`;
-  } else if (p.kind === 'gc') {
-    const c = D.GCC;
-    html = `<b>${c.name[p.i]}</b> · GC<br>${c.dist[p.i].toFixed(1)} kpc`;
-    if (Number.isFinite(c.mass?.[p.i])) html += `<br>${c.mass[p.i].toExponential(1)} M☉`;
-  } else if (p.kind === 'dwarf') {
-    const c = D.DWF;
-    html = `<b>${c.name[p.i]}</b> · dwarf<br>${c.dist[p.i].toFixed(1)} kpc`;
-  } else if (p.kind === 'member') {
-    const c = D.MEM;
-    html = `<b>${c.name[p.i]}</b> member<br>${c.dist[p.i].toFixed(0)} kpc (galaxy)<br>G = ${c.G[p.i].toFixed(2)}`;
-  }
-  tip.innerHTML = html;
+  tip.innerHTML = objectHtml(p);
   tip.style.display = 'block';
-  tip.style.left = (e.clientX + 14) + 'px';
-  tip.style.top = (e.clientY + 10) + 'px';
+  placeTooltip(tip, e);
   document.body.style.cursor = 'pointer';
 }
 
-export function setZoomDistance(halfBox) {
-  const dir = camera.position.clone().sub(controls.target).normalize();
-  camera.position.copy(controls.target.clone().add(dir.multiplyScalar(halfBox * 2.6)));
-  needsRender = true;
+// keep tooltips on-screen: flip to the left of the cursor near the right edge
+export function placeTooltip(tip, e) {
+  const pad = 12;
+  tip.style.left = '0px'; tip.style.top = '0px';
+  const w = tip.offsetWidth || 160;
+  let x = e.clientX + pad;
+  if (x + w > window.innerWidth - 6) x = e.clientX - pad - w;
+  tip.style.left = x + 'px';
+  tip.style.top = (e.clientY + 10) + 'px';
 }
 
 export function requestRender() { needsRender = true; }

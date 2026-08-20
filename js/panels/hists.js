@@ -1,46 +1,119 @@
-// Field histograms (distance, magnitude, NN separation) and the pair plot.
-// Stacked by source kind, with an ∞ bin for quasars (v1's _kind_hist port).
+// Field histograms (distance, magnitude, NN separation) and the pair plot, with the
+// pair-plot controls (moved here from the sidebar). Stacked by source kind, ∞ bin for
+// quasars (v1's _kind_hist port). Bars have hover readouts: "(18–20, 4)".
 import { D } from '../data.js';
-import { state, on } from '../state.js';
+import { state, set, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import * as C from '../compute.js';
 import { UI, KIND_COL, scales } from '../colors.js';
+import { placeTooltip } from '../scene3d.js';
 import { fitCanvas, label } from './canvas2d.js';
 
 let els = {};
+let tipEl = null;
 
 export function initHists(container) {
-  for (const id of ['dist', 'mag', 'nn', 'pair']) {
+  tipEl = document.getElementById('tooltip2d');
+  for (const id of ['dist', 'mag', 'nn', 'pairctl', 'pair']) {
+    if (id === 'pairctl') {
+      const row = document.createElement('div');
+      row.className = 'pair-controls';
+      row.innerHTML =
+        `<label class="pc-chk"><input type="checkbox" id="connect-chk" ${state.connect ? 'checked' : ''}> NN lines on finder</label>` +
+        `<select id="pair-sel">` +
+        `<option value="dd"${state.pairKind === 'dd' ? ' selected' : ''}>sep vs Δdist (pairs)</option>` +
+        `<option value="dv"${state.pairKind === 'dv' ? ' selected' : ''}>sep vs Δv (pairs)</option>` +
+        `<option value="nn"${state.pairKind === 'nn' ? ' selected' : ''}>d_i vs d_nn (NN)</option>` +
+        `<option value="dnn"${state.pairKind === 'dnn' ? ' selected' : ''}>NN Δdist histogram</option>` +
+        `</select>`;
+      container.appendChild(row);
+      row.querySelector('#connect-chk').addEventListener('change', e => set({ connect: e.target.checked }));
+      row.querySelector('#pair-sel').addEventListener('change', e => set({ pairKind: e.target.value }));
+      continue;
+    }
     const box = document.createElement('div');
     box.className = 'hist-box';
     const cvs = document.createElement('canvas');
     box.appendChild(cvs);
     container.appendChild(box);
-    els[id] = { box, cvs };
+    els[id] = { box, cvs, bars: [] };
+    cvs.addEventListener('pointermove', e => barHover(id, e));
+    cvs.addEventListener('pointerleave', () => { tipEl.style.display = 'none'; });
   }
   on('fieldmodel', drawAll);
   new ResizeObserver(drawAll).observe(container);
 }
 
+function barHover(id, e) {
+  const rec = els[id];
+  const r = rec.cvs.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  for (const b of rec.bars) {
+    if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) {
+      tipEl.innerHTML = `(${b.lab}, ${b.count})`;
+      tipEl.style.display = 'block';
+      placeTooltip(tipEl, e);
+      return;
+    }
+  }
+  tipEl.style.display = 'none';
+}
+
+// nice tick step: 1/2/5 × 10^k targeting ~n ticks, integers preferred
+function niceStep(span, n = 6) {
+  const raw = span / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-9))));
+  for (const m of [1, 2, 5, 10]) {
+    if (m * mag >= raw) return m * mag;
+  }
+  return 10 * mag;
+}
+const fmtTick = v => Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : String(+v.toFixed(2));
+
+function xTicks(ctx, plot, h, lo, hi, toX) {
+  const step = niceStep(hi - lo, 6);
+  ctx.fillStyle = UI.panelBorder;
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+    const X = toX(v);
+    ctx.fillRect(X, plot.y + plot.h, 1, 3);
+    label(ctx, fmtTick(v), X, h - 16, { align: 'center', size: 8 });
+    ctx.fillStyle = UI.panelBorder;
+  }
+}
+
+function yTicks(ctx, plot, maxC) {
+  const step = Math.max(1, niceStep(maxC, 4));
+  ctx.fillStyle = UI.panelBorder;
+  for (let v = step; v <= maxC + 1e-9; v += step) {
+    const Y = plot.y + plot.h - v / maxC * plot.h;
+    ctx.fillRect(plot.x - 3, Y, 3, 1);
+    label(ctx, fmtTick(v), plot.x - 5, Y + 3, { align: 'right', size: 8 });
+    ctx.fillStyle = UI.panelBorder;
+  }
+}
+
 let pairStale = false;
 function drawAll(opts) {
-  drawKindHist(els.dist.cvs, F.src.dist, 'field distances', 'dist [kpc]', true,
+  drawKindHist('dist', F.src.dist, 'field distances', 'dist [kpc]', true,
     `${F.idx.filter(i => D.s_dist_known[i]).length} meas · ${F.idx.filter(i => !D.s_dist_known[i]).length} geom`);
-  drawKindHist(els.mag.cvs, F.src.G, 'field magnitudes', 'Gaia G', false);
-  drawNN(els.nn.cvs);
+  drawKindHist('mag', F.src.G, 'field magnitudes', 'Gaia G', false);
+  drawNN();
   // the O(n^2) pair plot waits until a live drag ends
   if (opts?.live && F.src.n > 300) { pairStale = true; return; }
   pairStale = false;
   drawPair(els.pair.cvs);
 }
 
-function drawKindHist(cvs, values, title, xlab, infBin, note) {
+function drawKindHist(id, values, title, xlab, infBin, note) {
+  const rec = els[id];
+  const cvs = rec.cvs;
   const w = cvs.parentElement.clientWidth;
   if (!w) return;
-  const h = 130;
+  const h = 132;
   const ctx = fitCanvas(cvs, w, h);
   ctx.clearRect(0, 0, w, h);
-  const plot = { x: 30, y: 18, w: w - 40, h: h - 44 };
+  const plot = { x: 34, y: 18, w: w - 44, h: h - 46 };
+  rec.bars = [];
   label(ctx, title, plot.x, 12, { size: 10, color: UI.text });
   if (note) label(ctx, note, w - 8, 12, { size: 8.5, align: 'right' });
 
@@ -50,11 +123,11 @@ function drawKindHist(cvs, values, title, xlab, infBin, note) {
   for (let i = 0; i < values.length; i++) if (values[i] === Infinity) nInf++;
   if (!mm && !nInf) { label(ctx, 'no sources', w / 2, h / 2, { align: 'center' }); return; }
 
-  const nb = 28;
-  let lo = mm ? mm[0] : 0, hi = mm ? mm[1] : 1;
+  // whole-number bin edges: snap the range out to integers, use a nice bin width
+  let lo = mm ? Math.floor(mm[0]) : 0, hi = mm ? Math.ceil(mm[1]) : 1;
   if (hi <= lo) hi = lo + 1;
-  const bw = (hi - lo) / nb;
-  // stacked counts per kind (draw order: star, member, qso)
+  const bw = Math.max(niceStep(hi - lo, 26), (hi - lo) / 40);
+  const nb = Math.max(1, Math.round((hi - lo) / bw));
   const stacks = [0, 2, 3, 1].map(k => {
     const arr = new Float64Array(values.length);
     let n = 0;
@@ -80,31 +153,44 @@ function drawKindHist(cvs, values, title, xlab, infBin, note) {
       ctx.fillRect(plot.x + b * colW + 0.4, plot.y + plot.h - yoff - bh, colW - 0.8, bh);
       yoff += bh;
     }
+    if (tot[b]) {
+      const b0 = lo + b * (hi - lo) / nb, b1 = lo + (b + 1) * (hi - lo) / nb;
+      rec.bars.push({
+        x0: plot.x + b * colW, x1: plot.x + (b + 1) * colW,
+        y0: plot.y, y1: plot.y + plot.h,
+        lab: `${fmtTick(b0)}–${fmtTick(b1)}`, count: tot[b],
+      });
+    }
   }
   if (infBin && nInf) {
     const bh = nInf / maxC * plot.h;
     ctx.fillStyle = KIND_COL[1];
     ctx.fillRect(plot.x + (nb + 1) * colW + 0.4, plot.y + plot.h - bh, colW - 0.8, bh);
     label(ctx, '∞', plot.x + (nb + 1.5) * colW, h - 16, { align: 'center', size: 12, color: KIND_COL[1] });
+    rec.bars.push({
+      x0: plot.x + (nb + 1) * colW, x1: plot.x + (nb + 2) * colW,
+      y0: plot.y, y1: plot.y + plot.h, lab: '∞', count: nInf,
+    });
   }
-  // axis
+  // axes
   ctx.strokeStyle = UI.panelBorder;
   ctx.strokeRect(plot.x, plot.y, plot.w, plot.h);
   label(ctx, xlab, plot.x + plot.w / 2, h - 4, { align: 'center', size: 9 });
-  if (mm) {
-    label(ctx, lo.toFixed(hi - lo > 20 ? 0 : 1), plot.x, h - 16, { size: 8 });
-    label(ctx, hi.toFixed(hi - lo > 20 ? 0 : 1), plot.x + nb * colW, h - 16, { align: 'right', size: 8 });
-  }
-  label(ctx, String(maxC), plot.x - 3, plot.y + 8, { align: 'right', size: 8 });
+  const toX = v => plot.x + (v - lo) / (hi - lo) * (nb * colW);
+  xTicks(ctx, plot, h, lo, hi, toX);
+  yTicks(ctx, plot, maxC);
 }
 
-function drawNN(cvs) {
+function drawNN() {
+  const rec = els.nn;
+  const cvs = rec.cvs;
   const w = cvs.parentElement.clientWidth;
   if (!w) return;
-  const h = 130;
+  const h = 132;
   const ctx = fitCanvas(cvs, w, h);
   ctx.clearRect(0, 0, w, h);
-  const plot = { x: 30, y: 18, w: w - 40, h: h - 44 };
+  const plot = { x: 34, y: 18, w: w - 44, h: h - 46 };
+  rec.bars = [];
   if (!F.nn) {
     label(ctx, F.src.n > 2500 ? 'NN skipped while dragging' : 'fewer than 2 sources',
       w / 2, h / 2, { align: 'center' });
@@ -114,20 +200,31 @@ function drawNN(cvs) {
   const med = C.median(sep);
   label(ctx, `NN separation (median ${med.toFixed(2)}′)`, plot.x, 12, { size: 10, color: UI.text });
   const mm = C.finiteMinMax(sep);
-  const hist = C.histogram(sep, 40, mm[0], mm[1]);
+  let lo = Math.floor(mm[0]), hi = Math.ceil(mm[1]);
+  if (hi <= lo) hi = lo + 1;
+  const nb = 40;
+  const hist = C.histogram(sep, nb, lo, hi);
   const maxC = Math.max(1, C.arrMax(hist.counts));
-  const colW = plot.w / 40;
+  const colW = plot.w / nb;
   ctx.fillStyle = UI.hist;
-  for (let b = 0; b < 40; b++) {
+  for (let b = 0; b < nb; b++) {
     const bh = hist.counts[b] / maxC * plot.h;
     ctx.fillRect(plot.x + b * colW + 0.3, plot.y + plot.h - bh, colW - 0.6, bh);
+    if (hist.counts[b]) {
+      const b0 = lo + b * (hi - lo) / nb, b1 = lo + (b + 1) * (hi - lo) / nb;
+      rec.bars.push({
+        x0: plot.x + b * colW, x1: plot.x + (b + 1) * colW,
+        y0: plot.y, y1: plot.y + plot.h,
+        lab: `${(+b0.toFixed(1))}–${(+b1.toFixed(1))}′`, count: hist.counts[b],
+      });
+    }
   }
   ctx.strokeStyle = UI.panelBorder;
   ctx.strokeRect(plot.x, plot.y, plot.w, plot.h);
   label(ctx, 'NN sep [arcmin]', plot.x + plot.w / 2, h - 4, { align: 'center', size: 9 });
-  label(ctx, mm[0].toFixed(1), plot.x, h - 16, { size: 8 });
-  label(ctx, mm[1].toFixed(1), plot.x + plot.w, h - 16, { align: 'right', size: 8 });
-  label(ctx, String(maxC), plot.x - 3, plot.y + 8, { align: 'right', size: 8 });
+  const toX = v => plot.x + (v - lo) / (hi - lo) * plot.w;
+  xTicks(ctx, plot, h, lo, hi, toX);
+  yTicks(ctx, plot, maxC);
 }
 
 // ---- pair plot -------------------------------------------------------------------
@@ -147,6 +244,7 @@ function drawPair(cvs) {
   const ctx = fitCanvas(cvs, w, h);
   ctx.clearRect(0, 0, w, h);
   const plot = { x: 40, y: 18, w: w - 52, h: h - 46 };
+  els.pair.bars = [];
   if (F.src.n < 2 || !F.nn) {
     label(ctx, 'fewer than 2 sources', w / 2, h / 2, { align: 'center' });
     return;
@@ -209,8 +307,8 @@ function drawPair(cvs) {
     ctx.rotate(-Math.PI / 2);
     label(ctx, ylab, 0, 0, { align: 'center', size: 9 });
     ctx.restore();
-    label(ctx, sMax.toFixed(0) + '′', plot.x + plot.w, h - 18, { align: 'right', size: 8 });
-    label(ctx, qMax.toFixed(0), plot.x - 3, plot.y + 8, { align: 'right', size: 8 });
+    xTicks(ctx, plot, h, 0, sMax, v => plot.x + v / sMax * plot.w);
+    label(ctx, fmtTick(qMax), plot.x - 3, plot.y + 8, { align: 'right', size: 8 });
     if (anyInf) label(ctx, '(quasar pairs at Δd=∞ omitted)', w - 8, 12, { align: 'right', size: 8 });
   } else if (kind === 'nn') {
     // d_i vs d_nn scatter
@@ -243,6 +341,7 @@ function drawPair(cvs) {
     label(ctx, 'd_i [kpc]', plot.x + plot.w / 2, h - 6, { align: 'center', size: 9 });
     label(ctx, 'd_nn', 12, plot.y + plot.h / 2, { size: 9 });
     label(ctx, '∞→', plot.x + plot.w, h - 18, { align: 'right', size: 9, color: UI.accent2 });
+    xTicks(ctx, plot, h, lo, top, sx);
   } else {
     // Δd histogram of NN pairs, stacked by kind
     const dd = new Float64Array(F.src.n);
@@ -251,7 +350,6 @@ function drawPair(cvs) {
       dd[i] = (Number.isFinite(a) && Number.isFinite(b)) ? Math.abs(a - b)
         : (a === Infinity && b === Infinity ? NaN : Infinity);
     }
-    const saved = F.src.dist;
     drawKindHistInline(ctx, plot, w, h, dd, F.src.kind, 'NN Δdistance', '|d_i − d_nn| [kpc]');
   }
 }
@@ -262,9 +360,9 @@ function drawKindHistInline(ctx, plot, w, h, values, kinds, title, xlab) {
   let nInf = 0;
   for (let i = 0; i < values.length; i++) if (values[i] === Infinity) nInf++;
   if (!mm && !nInf) { label(ctx, 'no pairs', w / 2, h / 2, { align: 'center' }); return; }
-  const nb = 34;
-  let lo = mm ? mm[0] : 0, hi = mm ? mm[1] : 1;
+  let lo = mm ? Math.floor(mm[0]) : 0, hi = mm ? Math.ceil(mm[1]) : 1;
   if (hi <= lo) hi = lo + 1;
+  const nb = 34;
   const stacks = [0, 2, 3, 1].map(k => {
     const vals = [];
     for (let i = 0; i < values.length; i++) if (kinds[i] === k && Number.isFinite(values[i])) vals.push(values[i]);
@@ -285,6 +383,14 @@ function drawKindHistInline(ctx, plot, w, h, values, kinds, title, xlab) {
       ctx.fillRect(plot.x + b * colW + 0.4, plot.y + plot.h - yoff - bh, colW - 0.8, bh);
       yoff += bh;
     }
+    if (tot[b]) {
+      const b0 = lo + b * (hi - lo) / nb, b1 = lo + (b + 1) * (hi - lo) / nb;
+      els.pair.bars.push({
+        x0: plot.x + b * colW, x1: plot.x + (b + 1) * colW,
+        y0: plot.y, y1: plot.y + plot.h,
+        lab: `${fmtTick(b0)}–${fmtTick(b1)}`, count: tot[b],
+      });
+    }
   }
   if (nInf) {
     const bh = nInf / maxC * plot.h;
@@ -295,7 +401,7 @@ function drawKindHistInline(ctx, plot, w, h, values, kinds, title, xlab) {
   ctx.strokeStyle = UI.panelBorder;
   ctx.strokeRect(plot.x, plot.y, plot.w, plot.h);
   label(ctx, xlab, plot.x + plot.w / 2, h - 6, { align: 'center', size: 9 });
-  label(ctx, lo.toFixed(1), plot.x, h - 18, { size: 8 });
-  label(ctx, hi.toFixed(1), plot.x + nb * colW, h - 18, { align: 'right', size: 8 });
-  label(ctx, String(maxC), plot.x - 3, plot.y + 8, { align: 'right', size: 8 });
+  const toX = v => plot.x + (v - lo) / (hi - lo) * (nb * colW);
+  xTicks(ctx, plot, h, lo, hi, toX);
+  yTicks(ctx, plot, maxC);
 }

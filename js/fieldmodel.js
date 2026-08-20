@@ -1,22 +1,18 @@
 // Field model — one computation per field/state change; every panel reads this.
+// All collections FOLLOW VISIBILITY (Matt, 8-19-26): a hidden catalog contributes
+// nothing to the ladder, fiber budget, histograms or stats.
 import { D, quaiaInField, sortedCatInField } from './data.js';
 import { state, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { ladder } from './rungs.js';
 
 export const F = {};        // current field results
-let liveSkipNN = false;
 
 export function fieldStars() {
-  // star indices in field respecting via/isolate/mag-hide (v1 _state semantics)
+  if (!state.streamsOn) return [];
   const r = state.fov / 2;
   let idx = C.fieldIndices(state.lam0, state.bet0, D.UG_SGR, r);
-  const selCode = state.stream ? D.STREAM_NAMES.indexOf(state.stream) : -1;
-  idx = idx.filter(i => {
-    if (state.via && !D.viaMask[i]) return false;
-    if (state.isolate && selCode >= 0 && D.s_name_code[i] !== selCode) return false;
-    return true;
-  });
+  if (state.via) idx = idx.filter(i => D.viaMask[i]);
   if (state.hide) idx = idx.filter(i => D.s_G[i] >= state.glo && D.s_G[i] <= state.ghi);
   return idx;
 }
@@ -35,6 +31,11 @@ export function haloInField() {
   return h;
 }
 
+// dwarf: whether a dwarf passes the "Via only" placeholder cut (< 300 kpc)
+export function dwarfViaOk(i) {
+  return !state.viaDwarfs || (Number.isFinite(D.DWF.dist[i]) && D.DWF.dist[i] < 300);
+}
+
 // active cloud indices under the current filter (VHVC = |vLSR| >= 200 km/s)
 export function activeClouds() {
   if (!D.CLOUDS || !state.cloudsOn) return [];
@@ -48,8 +49,10 @@ export function activeClouds() {
 }
 
 export function memInField() {
-  if (!D.MEM || !state.memOn) return [];
+  // members ride on the dwarfs checkbox AND their own sub-checkbox
+  if (!D.MEM || !state.dgOn || !state.memOn) return [];
   let m = C.fieldIndices(state.lam0, state.bet0, D.MEM.UG, state.fov / 2);
+  if (state.viaDwarfs) m = m.filter(i => Number.isFinite(D.MEM.dist[i]) && D.MEM.dist[i] < 300);
   if (state.hide) {
     m = m.filter(i => !Number.isFinite(D.MEM.G[i]) ||
       (D.MEM.G[i] >= state.glo && D.MEM.G[i] <= state.ghi));
@@ -62,7 +65,7 @@ function buildSources(idx, mm, hh, qq) {
   const n = idx.length + mm.length + hh.length + qq.length;
   const lam = new Float64Array(n), bet = new Float64Array(n), dist = new Float64Array(n);
   const G = new Float64Array(n), Vr = new Float64Array(n);
-  const kind = new Uint8Array(n);    // 0 star, 1 qso, 2 member
+  const kind = new Uint8Array(n);    // 0 star, 1 qso, 2 member, 3 halo
   let k = 0;
   for (const i of idx) {
     lam[k] = D.s_lam[i]; bet[k] = D.s_bet[i]; dist[k] = D.s_dist_use[i];
@@ -97,7 +100,7 @@ export function recompute(opts = {}) {
   F.mm = memInField();
   F.hh = haloInField();
   F.qq = qsoInField();
-  F.gc = C.fieldIndices(state.lam0, state.bet0, D.GCC.UG, state.fov / 2).filter(i => state.gcOn);
+  F.gc = state.gcOn ? C.fieldIndices(state.lam0, state.bet0, D.GCC.UG, state.fov / 2) : [];
   F.clouds = activeClouds();
   // clouds intersecting the field: center within (field radius + cloud radius)
   F.cloudsInField = !F.clouds.length ? [] : (() => {
@@ -108,7 +111,9 @@ export function recompute(opts = {}) {
     }
     return out;
   })();
-  F.dw = C.fieldIndices(state.lam0, state.bet0, D.DWF.UG, state.fov / 2).filter(i => state.dgOn);
+  F.dw = state.dgOn
+    ? C.fieldIndices(state.lam0, state.bet0, D.DWF.UG, state.fov / 2).filter(dwarfViaOk)
+    : [];
   F.src = buildSources(F.idx, F.mm, F.hh, F.qq);
 
   // NN over all sources: exact brute force up to 3000 (matches v1 star-for-star),
@@ -127,15 +132,18 @@ export function recompute(opts = {}) {
   const lin = state.himap === 'hvc' && D.HI_LIN_HVC ? D.HI_LIN_HVC : D.HI_LIN_TOTAL;
   F.hi = C.hiStatsInField(lin, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, state.fov / 2);
 
-  // ladder + fiber budget
-  F.ladder = ladder(F.idx, state.lam0, state.bet0, state.fov / 2, state.ghi, F.qq.length);
+  // ladder + fiber budget (both follow visibility)
+  F.ladder = ladder({
+    idx: F.idx, mm: F.mm, hh: F.hh, gc: F.gc, dw: F.dw,
+    nQso: F.qq.length, gLim: state.ghi,
+  });
   const nTargets = F.idx.length + F.mm.length + F.hh.length + F.qq.length;
   F.fibers = {
     targets: nTargets,
     stars: F.idx.length, members: F.mm.length, halo: F.hh.length, qsos: F.qq.length,
     positioners: 576, science: 540, boombox: 36,
-    spare: Math.max(0, 540 - nTargets),
-    over: Math.max(0, nTargets - 540),
+    spare: Math.max(0, 576 - nTargets),
+    over: Math.max(0, nTargets - 576),
   };
   // per-stream composition
   const comp = new Map();
@@ -144,6 +152,10 @@ export function recompute(opts = {}) {
     comp.set(nm, (comp.get(nm) ?? 0) + 1);
   }
   F.comp = [...comp.entries()].sort((a, b) => b[1] - a[1]);
+  // dwarf-member composition (per galaxy), for the collapsed dwarf summary line
+  const mcomp = new Map();
+  for (const i of F.mm) mcomp.set(D.MEM.name[i], (mcomp.get(D.MEM.name[i]) ?? 0) + 1);
+  F.memComp = mcomp;
   F.computeMs = performance.now() - t0;
   emit('fieldmodel', opts);
 }
