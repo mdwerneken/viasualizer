@@ -418,6 +418,12 @@ function wireSidebar() {
   on('field', syncLockButtons);
   on('ui', refreshCandidates);
   on('field', refreshCandidates);
+  on('field', syncFov);            // fov can change via history / cones / saved chips
+  on('ui', syncFov);
+  // a lingering hover tooltip after scrolling the dossier
+  document.getElementById('dossier').addEventListener('scroll', () => {
+    document.getElementById('tooltip2d').style.display = 'none';
+  }, { passive: true });
 }
 
 function syncFov() {
