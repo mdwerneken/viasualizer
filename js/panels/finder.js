@@ -4,7 +4,7 @@
 // drag-to-pan, tiled 1-degree pointings over ALL sources when FOV > 1, and rung
 // pop-out highlighting driven by the ladder / stats panels.
 import { D } from '../data.js';
-import { state, setField, on } from '../state.js';
+import { state, setField, slideField, emit, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import { skey } from '../rungs.js';
 import * as C from '../compute.js';
@@ -110,11 +110,16 @@ function draw() {
 
   // field rim
   circleOutline(ctx, px.cx, px.cy, px.R, UI.accent, 2.2);
-  // scale tick: 10 arcmin bar
-  const bar = 10 * px.scale;
+  // scale reference: 15 arcmin bar in the bottom-left corner, clear of the circle
+  const bar = 15 * px.scale;
   ctx.fillStyle = UI.textDim;
-  ctx.fillRect(px.cx - bar / 2, h - 6, bar, 1.5);
-  label(ctx, "10′", px.cx, h - 10, { align: 'center', size: 9 });
+  ctx.fillRect(8, h - 8, bar, 1.5);
+  label(ctx, "15′", 8 + bar / 2, h - 12, { align: 'center', size: 10.5 });
+
+  // selected object / survey-field name in the bottom-right corner
+  if (state.lock?.name) {
+    label(ctx, state.lock.name, w - 8, h - 8, { align: 'right', size: 11, color: UI.accent, weight: '600' });
+  }
 
   // HI colorbar (top-left) + HI stats (top-right) — the star colorbar lives on the 3D view now
   drawHiLegend(ctx, w);
@@ -123,22 +128,26 @@ function draw() {
 function drawHiLegend(ctx, w) {
   const useHvc = state.himap === 'hvc';
   const scale = useHvc ? scales.hiRed : scales.hiBlue;
-  const lw = 56, lh = 7, lx = 6, ly = 14;
+  const big = expander?.isExpanded();            // larger colorbar in the enlarged view
+  const lw = big ? 130 : 56, lh = big ? 13 : 7, lx = 6, ly = big ? 20 : 14;
+  const fs = big ? 11 : 8;
   for (let k = 0; k < lw; k++) {
     ctx.fillStyle = scale.css(k / (lw - 1));
     ctx.fillRect(lx + k, ly, 1.2, lh);
   }
-  label(ctx, useHvc ? 'HVC log N(HI)' : 'log N(HI)', lx, ly - 4, { size: 8 });
+  label(ctx, useHvc ? 'HVC log N(HI)' : 'log N(HI)', lx, ly - 5, { size: fs });
   if (hiStretch) {
-    label(ctx, hiStretch.v0.toFixed(1), lx, ly + lh + 9, { size: 8 });
-    label(ctx, hiStretch.v1.toFixed(1), lx + lw, ly + lh + 9, { align: 'right', size: 8 });
+    label(ctx, hiStretch.v0.toFixed(1), lx, ly + lh + fs + 2, { size: fs });
+    label(ctx, hiStretch.v1.toFixed(1), lx + lw, ly + lh + fs + 2, { align: 'right', size: fs });
   }
-  // keep clear of the ⤢ enlarge button in the top-right corner
+  // cleanly right-justified; the enlarge button sits below this text (CSS), and the
+  // expanded view keeps clear of the fixed ✕ button
+  const rx = big ? w - 46 : w - 6;
   if (F.hi) {
-    label(ctx, `mean ${Math.log10(F.hi.mean).toFixed(2)}`, w - 36, 10, { align: 'right', size: 8.5 });
-    label(ctx, `peak ${Math.log10(F.hi.peak).toFixed(2)}`, w - 36, 20, { align: 'right', size: 8.5 });
+    label(ctx, `mean ${Math.log10(F.hi.mean).toFixed(2)}`, rx, 11, { align: 'right', size: big ? 11 : 8.5 });
+    label(ctx, `peak ${Math.log10(F.hi.peak).toFixed(2)}`, rx, big ? 25 : 21, { align: 'right', size: big ? 11 : 8.5 });
   } else if (state.himap === 'hvc') {
-    label(ctx, 'no HVC signal', w - 36, 10, { align: 'right', size: 8.5 });
+    label(ctx, 'no HVC signal', rx, 11, { align: 'right', size: big ? 11 : 8.5 });
   }
 }
 
@@ -286,7 +295,7 @@ function drawSources(ctx, xi, eta) {
   if (state.connect && F.nn && F.src.n > 1) {
     const [sxi, seta] = C.gnomonic(F.src.lam, F.src.bet, state.lam0, state.bet0);
     ctx.strokeStyle = 'rgba(224,82,82,0.45)';
-    ctx.lineWidth = 0.7;
+    ctx.lineWidth = 2.1;
     ctx.beginPath();
     for (let i = 0; i < F.src.n; i++) {
       const j = F.nn.nn[i];
@@ -307,7 +316,10 @@ function drawSources(ctx, xi, eta) {
       dot(ctx, X, Y, 4, UI.accent2, qa);
       ctx.strokeStyle = '#00000088'; ctx.lineWidth = 0.8;
       ctx.stroke();
-      hitList.push({ x: X, y: Y, r: 6, pri: 0, qso: F.qq[k], lam: D.QSO.lam[F.qq[k]], bet: D.QSO.bet[F.qq[k]] });
+      hitList.push({
+        x: X, y: Y, r: 6, pri: 0, qso: F.qq[k], lam: D.QSO.lam[F.qq[k]], bet: D.QSO.bet[F.qq[k]],
+        lockInfo: { kind: 'star', id: F.qq[k], name: 'QSO' },
+      });
     }
   }
 
@@ -345,6 +357,7 @@ function drawSources(ctx, xi, eta) {
         x: X, y: Y, r: 6, pri: 0,
         html: `<b>halo ${D.HALO.clsNames[D.HALO.cls[i]] || 'RRL'}</b><br>${D.HALO.dist[i].toFixed(1)} kpc (±10%)<br>G = ${D.HALO.G[i].toFixed(2)}`,
         lam: D.HALO.lam[i], bet: D.HALO.bet[i],
+        lockInfo: { kind: 'star', id: i, name: 'halo RRL', dist: D.HALO.dist[i] },
       });
     }
   }
@@ -361,7 +374,12 @@ function drawSources(ctx, xi, eta) {
       ctx.globalAlpha = a ? 1 : dimA;
       starGlyph(ctx, X, Y, 4.5, UI.member, '#00000066');
       ctx.globalAlpha = 1;
-      hitList.push({ x: X, y: Y, r: 6, pri: 0, html: `<b>${D.MEM.name[i]}</b> member<br>${D.MEM.dist[i].toFixed(0)} kpc (galaxy)<br>G = ${D.MEM.G[i].toFixed(2)} · P=${D.MEM.pmem[i].toFixed(2)}`, lam: D.MEM.lam[i], bet: D.MEM.bet[i] });
+      hitList.push({
+        x: X, y: Y, r: 6, pri: 0,
+        html: `<b>${D.MEM.name[i]}</b> member<br>${D.MEM.dist[i].toFixed(0)} kpc (galaxy)<br>G = ${D.MEM.G[i].toFixed(2)} · P=${D.MEM.pmem[i].toFixed(2)}`,
+        lam: D.MEM.lam[i], bet: D.MEM.bet[i],
+        lockInfo: { kind: 'star', id: i, name: D.MEM.name[i], dist: D.MEM.dist[i] },
+      });
     }
   }
 
@@ -386,6 +404,7 @@ function drawSources(ctx, xi, eta) {
     hitList.push({
       x: X, y: Y, r: dense ? 3.5 : rStar + 2, pri: 0, star: i,
       lam: D.s_lam[i], bet: D.s_bet[i],
+      lockInfo: { kind: 'star', id: i, name: D.streamName(i), dist: D.s_dist_use[i] },
     });
   }
 
@@ -412,7 +431,10 @@ function drawSources(ctx, xi, eta) {
       let html = `<b>${cat.name[i]}</b><br>${cat.dist[i].toFixed(1)} kpc`;
       if (cat.mass && Number.isFinite(cat.mass[i])) html += `<br>${cat.mass[i].toExponential(1)} M☉`;
       if (cat.rh_am && Number.isFinite(cat.rh_am[i])) html += `<br>r_h = ${cat.rh_am[i].toFixed(1)}′`;
-      hitList.push({ x: X, y: Y, r: s + 5, pri: 1, html, lam: cat.lam[i], bet: cat.bet[i] });
+      hitList.push({
+        x: X, y: Y, r: s + 5, pri: 1, html, lam: cat.lam[i], bet: cat.bet[i],
+        lockInfo: { kind: kk, id: i, name: cat.name[i], dist: cat.dist[i] },
+      });
     }
   }
 }
@@ -459,7 +481,7 @@ function wirePointer() {
       const dx = (e.clientX - r.left) - panStart.x, dy = (e.clientY - r.top) - panStart.y;
       if (!panning && Math.hypot(dx, dy) > 4) {
         panning = true;
-        cv.setPointerCapture(e.pointerId);
+        try { cv.setPointerCapture(e.pointerId); } catch {}
         tipEl.style.display = 'none';
       }
       if (panning) {
@@ -481,11 +503,20 @@ function wirePointer() {
     panStart = null;
   });
   cv.addEventListener('dblclick', e => {
+    // dblclick on a source selects it (lock, labeled with the parent name);
+    // empty space recenters — both with the damped slide
+    const h = findHit(e);
+    if (h?.lockInfo) {
+      state.lock = h.lockInfo;
+      emit('lock');
+      slideField(h.lam, h.bet, { keepLock: true });
+      return;
+    }
     const r = cv.getBoundingClientRect();
     const [xiAm, etaAm] = fromPx(e.clientX - r.left, e.clientY - r.top);
     if (Math.hypot(xiAm, etaAm) <= state.fov / 2 * 60) {
       const [lo, la] = C.gnomonicInv(xiAm, etaAm, state.lam0, state.bet0);
-      setField(C.wrap180(lo), la);
+      slideField(C.wrap180(lo), la);
     }
   });
 }

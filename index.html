@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIAsual — Via halo sightline planner</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🌌</text></svg>">
-<link rel="stylesheet" href="css/style.css?v=2.2">
+<link rel="stylesheet" href="css/style.css?v=2.3">
 <script type="importmap">
   { "imports": { "three": "./js/vendor/three.module.min.js" } }
 </script>
@@ -13,7 +13,7 @@
 <body>
 <div id="loading">
   <div class="load-card">
-    <div class="load-title">VIAsual <span class="v2tag">v2</span></div>
+    <div class="load-title">VIAsual</div>
     <div class="load-sub">Via halo sightline planner — streams · GCs · dwarfs · quasars · HI</div>
     <div id="load-progress">starting…</div>
   </div>
@@ -31,7 +31,6 @@
     <nav id="tabs">
       <button class="tab-btn" data-tab="field">Field</button>
       <button class="tab-btn" data-tab="sky">Sky</button>
-      <button class="tab-btn" data-tab="halo">Halo</button>
     </nav>
     <div class="tab-page" data-tab="field">
       <div id="finder-wrap"></div>
@@ -40,12 +39,8 @@
       <div id="hists-wrap"></div>
     </div>
     <div class="tab-page" data-tab="sky" style="display:none">
-      <div class="sky-note tiny">drag the field circle or click anywhere to recenter · double-click a survey circle for its field · ⤢ enlarges</div>
       <div id="allsky-wrap"></div>
       <div id="sgrmap-wrap"></div>
-    </div>
-    <div class="tab-page" data-tab="halo" style="display:none">
-      <div id="halo-wrap"></div>
     </div>
   </section>
 </div>
@@ -54,11 +49,11 @@
 <div id="tooltip2d" class="tooltip"></div>
 
 <footer id="credit">
-  <a href="https://via-project.org" target="_blank" rel="noopener">the Via Project</a> ·
+  <a href="https://via-project.org" target="_blank" rel="noopener">The Via Project</a> ·
   <a href="v1/" title="original app">v1</a> ·
   <a href="https://github.com/mdwerneken/viasual" target="_blank" rel="noopener">source</a>
 </footer>
 
-<script type="module" src="js/app.js?v=2.2"></script>
+<script type="module" src="js/app.js?v=2.3"></script>
 </body>
 </html>

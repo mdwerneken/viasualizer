@@ -142,8 +142,8 @@ export function recompute(opts = {}) {
     targets: nTargets,
     stars: F.idx.length, members: F.mm.length, halo: F.hh.length, qsos: F.qq.length,
     positioners: 576, science: 540, boombox: 36,
-    spare: Math.max(0, 576 - nTargets),
-    over: Math.max(0, nTargets - 576),
+    spare: Math.max(0, 540 - nTargets),
+    over: Math.max(0, nTargets - 540),
   };
   // per-stream composition
   const comp = new Map();

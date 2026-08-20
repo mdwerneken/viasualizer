@@ -84,8 +84,13 @@ export function histGo(step) {
 
 export function setField(lam, bet, opts = {}) {
   state.lam0 = lam; state.bet0 = bet;
-  // any field move not produced by the lock action itself clears the go-to lock
-  if (!opts.keepLock && state.lock) { state.lock = null; emit('lock'); }
+  // any field move not produced by the lock action itself clears the go-to lock;
+  // a cone lock that changed the FOV restores the FOV that was in use before it
+  if (!opts.keepLock && state.lock) {
+    if (Number.isFinite(state.lock.restoreFov)) state.fov = state.lock.restoreFov;
+    state.lock = null;
+    emit('lock');
+  }
   emit('field', opts);
   scheduleHash();
   if (!opts.live) pushHistory();

@@ -117,6 +117,13 @@ export function initScene(container) {
   restyle();
   updatePointer();
   animate();
+
+  // debug/testing hook: screen position of the pointer's drag proxy
+  window.viasualPointerXY = () => {
+    const v = pointer.hit.position.clone().project(camera);
+    const r = renderer.domElement.getBoundingClientRect();
+    return [r.left + (v.x + 1) / 2 * r.width, r.top + (-v.y + 1) / 2 * r.height];
+  };
 }
 
 function resize(container) {
@@ -376,8 +383,9 @@ function buildObjectCatalogs() {
   memPts = catPoints(D.MEM, UI.member, 2.4, 'member');
 }
 
-// grey-out unselected objects of the same type when a highlight selection is active
-function tintCat(pts, cat, selIdx, selName = null) {
+// grey-out unselected objects of the same type when a highlight selection is active;
+// visFn(i) === false hides the point entirely (e.g. the dwarfs "<300 kpc only" cut)
+function tintCat(pts, cat, selIdx, selName = null, visFn = null) {
   const geo = pts.geometry;
   const col = geo.getAttribute('color').array;
   const al = geo.alphaAttr.array;
@@ -386,6 +394,7 @@ function tintCat(pts, cat, selIdx, selName = null) {
   const [gr, gg, gb] = hexToRgb01(UI.greyStar);
   const active = selIdx !== null || selName !== null;
   for (let i = 0; i < n; i++) {
+    if (visFn && !visFn(i)) { al[i] = 0; continue; }
     const isSel = !active || i === selIdx || (selName !== null && cat.name[i] === selName);
     col[3 * i] = isSel ? r : gr; col[3 * i + 1] = isSel ? g : gg; col[3 * i + 2] = isSel ? b : gb;
     al[i] = isSel ? 0.95 : 0.4;
@@ -399,10 +408,14 @@ function restyleObjects() {
   dwfPts.visible = state.dgOn;
   memPts.visible = state.dgOn && state.memOn;
   if (haloPts) haloPts.visible = state.haloOn;
+  const dwVis = state.viaDwarfs
+    ? i => Number.isFinite(D.DWF.dist[i]) && D.DWF.dist[i] < 300 : null;
+  const memVis = state.viaDwarfs
+    ? i => Number.isFinite(D.MEM.dist[i]) && D.MEM.dist[i] < 300 : null;
   tintCat(gcPts, D.GCC, state.hlGC ? state.gcSel : null);
-  tintCat(dwfPts, D.DWF, state.hlDwarf ? state.dwarfSel : null);
+  tintCat(dwfPts, D.DWF, state.hlDwarf ? state.dwarfSel : null, null, dwVis);
   const dwName = (state.hlDwarf && state.dwarfSel !== null) ? D.DWF.name[state.dwarfSel] : null;
-  tintCat(memPts, D.MEM, null, dwName);
+  tintCat(memPts, D.MEM, null, dwName, memVis);
 }
 
 // halo RR Lyrae: geometry built from galactic (l,b) + dist when the file arrives
@@ -669,7 +682,7 @@ function buildPointer() {
   tipGeo.translate(0, 0.5, 0);
   pointer.tip = new THREE.Mesh(tipGeo, mat.clone());
   pointer.ring = new THREE.Mesh(
-    new THREE.TorusGeometry(1, 0.14, 8, 64),
+    new THREE.TorusGeometry(1, 0.08, 8, 64),
     new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff5050') }));
   pointer.hit = new THREE.Mesh(
     new THREE.SphereGeometry(1, 12, 8),
@@ -682,10 +695,10 @@ export function updatePointer() {
   const dir = fieldDir3();
   const len = pointerLen();
   const up = new THREE.Vector3(0, 1, 0);
-  // arrowhead scales with arrow length; default smaller than the old fixed head
-  const tipLen = Math.max(0.7, len * 0.085);
+  // arrowhead scales with arrow length (halved 8-20-26: skinnier shaft, smaller head)
+  const tipLen = Math.max(0.35, len * 0.0425);
   const tipRad = tipLen * 0.34;
-  const shaftRad = Math.max(0.10, len * 0.013);
+  const shaftRad = Math.max(0.05, len * 0.0065);
   const shaftLen = len - tipLen;
   pointer.shaft.position.copy(SUN);
   pointer.shaft.scale.set(shaftRad, shaftLen, shaftRad);
@@ -693,15 +706,20 @@ export function updatePointer() {
   pointer.tip.position.copy(SUN.clone().add(dir.clone().multiplyScalar(shaftLen)));
   pointer.tip.scale.set(tipRad, tipLen, tipRad);
   pointer.tip.quaternion.setFromUnitVectors(up, dir);
-  // the field-size circle sits 1 kpc beyond the arrow tip
+  // the field-size circle sits 1 kpc beyond the arrow tip; the torus is rebuilt so
+  // its tube stays thin (a uniform xy-scale of a fat unit torus read as a "tube")
   const ringDist = len + 1;
-  const rad = ringDist * Math.tan((state.fov / 2) * Math.PI / 180);
+  const rad = Math.max(0.05, ringDist * Math.tan((state.fov / 2) * Math.PI / 180));
+  const tube = Math.min(0.10, Math.max(0.025, rad * 0.06));
+  pointer.ring.geometry.dispose();
+  pointer.ring.geometry = new THREE.TorusGeometry(rad, tube, 8, 64);
   const ringPos = SUN.clone().add(dir.clone().multiplyScalar(ringDist));
   pointer.ring.position.copy(ringPos);
-  pointer.ring.scale.set(rad, rad, 1);
+  pointer.ring.scale.set(1, 1, 1);
   pointer.ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
   pointer.hit.position.copy(ringPos);
   pointer.hit.scale.setScalar(Math.max(rad * 1.6, len * 0.14, 2.0));
+  pointer.hit.updateMatrixWorld();   // picking must not wait for the next render
   pointer.userData = { len };
   needsRender = true;
 }
@@ -725,6 +743,7 @@ function wirePicking(container) {
     raycaster.setFromCamera(ndc(e), camera);
     return raycaster.intersectObject(pointer.hit, false).length > 0;
   }
+  window.viasualPickTest = (clientX, clientY) => pickPointer({ clientX, clientY });
 
   function dragToField(e) {
     raycaster.setFromCamera(ndc(e), camera);
@@ -732,8 +751,10 @@ function wirePicking(container) {
     dragSphere.radius = dragRadius;      // CONSTANT during a drag: no projection jumps
     const hit = new THREE.Vector3();
     if (!raycaster.ray.intersectSphere(dragSphere, hit)) {
-      // behind the sphere: project ray direction from Sun
-      hit.copy(raycaster.ray.direction).multiplyScalar(dragSphere.radius).add(SUN);
+      // pointer is off the sphere silhouette: use the ray's closest point to the Sun,
+      // which is the FRONT rim direction — never flips to the back hemisphere
+      raycaster.ray.closestPointToPoint(SUN, hit);
+      if (hit.distanceToSquared(SUN) < 1e-9) return;   // degenerate: ray through the Sun
     }
     const d = hit.sub(SUN).normalize();
     // GC direction -> ICRS -> Sgr
@@ -750,7 +771,7 @@ function wirePicking(container) {
       dragging = true;
       dragRadius = pointer.userData.len || ARROW_LEN;
       controls.enabled = false;
-      el.setPointerCapture(e.pointerId);
+      try { el.setPointerCapture(e.pointerId); } catch {}
       e.preventDefault();
     }
   });
@@ -816,8 +837,9 @@ function wirePicking(container) {
       lam = D.DWF.lam[p.i]; bet = D.DWF.bet[p.i];
       lock = { kind: 'dwarf', id: p.i, name: D.DWF.name[p.i], dist: D.DWF.dist[p.i] };
     } else if (p.kind === 'member') {
+      // parent (galaxy) name for the lock label
       lam = D.MEM.lam[p.i]; bet = D.MEM.bet[p.i];
-      lock = { kind: 'star', id: p.i, name: `${D.MEM.name[p.i]} member`, dist: D.MEM.dist[p.i] };
+      lock = { kind: 'star', id: p.i, name: D.MEM.name[p.i], dist: D.MEM.dist[p.i] };
     } else if (p.kind === 'halo') {
       lam = D.HALO.lam[p.i]; bet = D.HALO.bet[p.i];
       lock = { kind: 'star', id: p.i, name: 'halo RRL', dist: D.HALO.dist[p.i] };
@@ -831,7 +853,21 @@ function wirePicking(container) {
   function hover(e) {
     if (hoverTimer) return;
     hoverTimer = setTimeout(() => { hoverTimer = null; }, 40);
-    setHover(pickAll(e), e);
+    const p = pickAll(e);
+    if (p) { setHover(p, e); return; }
+    // no point under the cursor: maybe a survey cone — show its name
+    raycaster.setFromCamera(ndc(e), camera);
+    const hits = raycaster.intersectObjects(conesGroup.children.filter(m => m.visible), false);
+    if (hits.length) {
+      const cone = hits[0].object.userData.cone;
+      const tip = document.getElementById('tooltip3d');
+      tip.innerHTML = `<b>${cone.name}</b> · ${cone.fov}° survey field`;
+      tip.style.display = 'block';
+      placeTooltip(tip, e);
+      document.body.style.cursor = 'pointer';
+      return;
+    }
+    setHover(null, e);
   }
 }
 

@@ -1,6 +1,6 @@
 // VIAsual v2 — app shell: boot, sidebar, tabs, saved fields + history, oracle verify.
 const DATA_DIR = 'data';
-export const CODE_VERSION = 'v2.2';
+export const CODE_VERSION = 'v2.3';
 
 import { loadCore, loadQuaia, loadHalo, D } from './data.js';
 import {
@@ -8,7 +8,7 @@ import {
   loadSaved, storeSaved, saveCurrentField, galField, histState, histGo, histSeed,
 } from './state.js';
 import * as C from './compute.js';
-import { initScales, UI } from './colors.js';
+import { initScales, UI, scales } from './colors.js';
 import { initFieldModel, F, recompute } from './fieldmodel.js';
 import { initScene, requestRender, restyle } from './scene3d.js';
 import { initFinder } from './panels/finder.js';
@@ -17,11 +17,9 @@ import { initSgrmap } from './panels/sgrmap.js';
 import { initHists } from './panels/hists.js';
 import { initLadder } from './panels/ladder.js';
 import { initStats } from './panels/stats.js';
-import { initHalo, maybeBuild as buildHalo } from './panels/halo.js';
 
 const $ = id => document.getElementById(id);
 const FOV_SNAPS = [1, 2, 3, 5];
-const GLIM_GRID = [16, 17, 18, 19, 20, 20.5];
 
 // ---- along-stream track (port of core.py _build_track / _track_pos) ----------------
 const TRACK = { list: null, stream: null };
@@ -110,8 +108,9 @@ function gotoDwarf(i) {
   slideField(D.DWF.lam[i], D.DWF.bet[i], { keepLock: true });
 }
 export function gotoCone(cone) {
+  const restoreFov = Math.abs(state.fov - cone.fov) > 0.01 ? state.fov : undefined;
   state.fov = cone.fov;
-  state.lock = { kind: 'cone', id: cone.key, name: cone.name };
+  state.lock = { kind: 'cone', id: cone.key, name: cone.name, restoreFov };
   emit('lock');
   syncFov();
   const [lam, bet] = C.convPoint(D.M_GAL, D.M_SGR, cone.l, cone.b);
@@ -124,6 +123,7 @@ window.addEventListener('v2-goto-cone', e => {
 
 // ---- sidebar construction ------------------------------------------------------------
 function option(v, t, sel) { return `<option value="${v}"${sel ? ' selected' : ''}>${t}</option>`; }
+const NONE_OPT = `<option value="">none selected</option>`;
 
 // dwarf-member counts per galaxy (full catalog)
 let MEM_COUNTS = null;
@@ -134,24 +134,74 @@ function memCounts() {
   return MEM_COUNTS;
 }
 
-function candOptions() {
-  // nearest gridpoint (FOV snap, G limit) with graceful fallback to what exists
+function candGrid() {
   const pairs = new Map();
   for (const c of D.CANDIDATES) {
     const g = c.glim ?? 20;
     pairs.set(`${c.fov}|${g}`, { fov: c.fov, glim: g });
   }
-  if (!pairs.size) return { html: '', note: 'no shortlists in data' };
+  if (!pairs.size) return null;
   let best = null, bd = Infinity;
   for (const p of pairs.values()) {
     const d = Math.abs(p.fov - state.fov) * 2 + Math.abs(p.glim - state.ghi);
     if (d < bd) { bd = d; best = p; }
   }
+  return best;
+}
+function candOptions() {
+  const best = candGrid();
+  if (!best) return { html: '', lab: 'PROMISING FIELDS' };
   const list = D.CANDIDATES.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim);
-  const html = list.map((c, k) =>
+  const html = list.map(c =>
     option(D.CANDIDATES.indexOf(c),
-      `#${c.rank} — ${c.fov}° • ℓ ${c.l.toFixed(1)}, b ${c.b.toFixed(1)} • G ≤ ${best.glim}`)).join('');
-  return { html, note: `top ${list.length} for ${best.fov}° fields at G ≤ ${best.glim}` };
+      `${c.fov}° • ℓ ${c.l.toFixed(1)}, b ${c.b.toFixed(1)} • G ≤ ${best.glim}`)).join('');
+  return { html, lab: `PROMISING FIELDS (${best.fov}°, G≤${best.glim})` };
+}
+
+// mark selects that sit at "none selected" so the closed box shows the dim italic style
+function syncNoneSel(sel) { sel.classList.toggle('nonesel', sel.value === ''); }
+
+// slider fraction -> css left, compensating for the thumb width
+const sliderLeft = f => `calc(${(f * 100).toFixed(2)}% + ${(7 - 14 * f).toFixed(1)}px)`;
+
+function fovSnapDots() {
+  return FOV_SNAPS.map(s => {
+    const f = (s - 1) / 4;
+    return `<span class="fov-dot" data-fov="${s}" style="left:${sliderLeft(f)}"></span>` +
+      `<span class="fov-snap" data-fov="${s}" style="left:${sliderLeft(f)}">${s}°</span>`;
+  }).join('');
+}
+
+// ADS/arXiv sources for the Input Catalogs section
+const CAT_SOURCES = [
+  { src: 'BONACA & PW 24', url: 'https://arxiv.org/abs/2405.19410',
+    num: () => `${D.N.toLocaleString()}`, lab: () => `stream stars · ${D.STREAM_NAMES.length} streams` },
+  { src: 'BAUMGARDT+21', url: 'https://ui.adsabs.harvard.edu/abs/2021MNRAS.505.5957B/abstract',
+    num: () => `${D.GCC.lam.length}`, lab: () => 'globular clusters' },
+  { src: 'MCCONNACHIE+12', url: 'https://ui.adsabs.harvard.edu/abs/2012AJ....144....4M/abstract',
+    num: () => `${D.DWF.lam.length}`, lab: () => 'dwarf galaxies' },
+  { src: 'BATTAGLIA+22', url: 'https://ui.adsabs.harvard.edu/abs/2022A%26A...657A..54B/abstract',
+    num: () => `${D.MEM.lam.length.toLocaleString()}`, lab: () => `members across ${memCounts().size} dwarfs` },
+  { src: 'STOREY-FISHER+24', url: 'https://ui.adsabs.harvard.edu/abs/2024ApJ...964...69S/abstract',
+    num: () => D.QSO ? D.QSO.lam.length.toLocaleString() : '…', lab: () => 'Quaia quasars · G < 20.5' },
+  { src: 'CLEMENTINI+23', url: 'https://ui.adsabs.harvard.edu/abs/2023A%26A...674A..18C/abstract',
+    num: () => D.HALO ? D.HALO.lam.length.toLocaleString() : '…', lab: () => 'halo RR Lyrae · |Z| > 3 kpc' },
+  { src: 'PUTMAN+02 · ADAMS+13', url: 'https://ui.adsabs.harvard.edu/abs/2002AJ....123..873P/abstract',
+    url2: 'https://ui.adsabs.harvard.edu/abs/2013ApJ...768...77A/abstract',
+    num: () => D.CLOUDS ? D.CLOUDS.name.length.toLocaleString() : '—', lab: () => 'HVC clouds (HIPASS + UCHVC)' },
+  { src: 'HI4PI (BEN BEKHTI+16) · WESTMEIER 18', url: 'https://ui.adsabs.harvard.edu/abs/2016A%26A...594A.116H/abstract',
+    url2: 'https://ui.adsabs.harvard.edu/abs/2018MNRAS.474..289W/abstract',
+    num: () => '0.25°', lab: () => 'N(HI) total + HVC maps' },
+];
+function catalogsHtml() {
+  return CAT_SOURCES.map(c => {
+    const names = c.src.split(' · ');
+    const links = c.url2
+      ? `<a href="${c.url}" target="_blank" rel="noopener">${names[0]}</a> · <a href="${c.url2}" target="_blank" rel="noopener">${names[1] ?? ''}</a>`
+      : `<a href="${c.url}" target="_blank" rel="noopener">${c.src}</a>`;
+    return `<div class="cat-entry"><div class="sec-lab cat-src">${links}</div>` +
+      `<div class="cat-num">${c.num()} <span class="tiny">${c.lab()}</span></div></div>`;
+  }).join('');
 }
 
 function buildSidebar() {
@@ -173,22 +223,41 @@ function buildSidebar() {
   };
   const dgOpts = [...withMem.map(dgOpt), ...noMem.map(dgOpt)];
   const cand = candOptions();
+  // stream subheading color: the distance colormap at ~10 kpc
+  const streamHead = scales.dist.css((10 - D.DIST_MIN) / (D.DIST_MAX - D.DIST_MIN));
 
   $('sidebar').innerHTML = `
-  <div class="brand">VIAsual<span class="v2tag">v2</span>
-    <a class="tolink" href="v1/" title="open the original v1 app">v1 ↗</a>
+  <div class="brand">VIAsual</div>
+
+  <div id="core-controls">
+    <div class="row"><label>FOV <b id="fov-v">${state.fov.toFixed(1)}</b>° <span class="tiny" id="fov-note"></span></label>
+      <div class="fov-wrap">
+        <input type="range" id="fov" min="1" max="5" step="0.1" value="${state.fov}">
+        ${fovSnapDots()}
+      </div>
+    </div>
+    <div class="row"><label>color by</label>
+      <select id="mode-sel">
+        ${option('dist', 'Distance (kpc)', state.mode === 'dist')}
+        ${option('mag', 'Magnitude (Gaia G)', state.mode === 'mag')}
+        ${option('hemi', 'Visibility/site', state.mode === 'hemi')}
+        ${option('stream', 'Streams', state.mode === 'stream')}
+      </select>
+    </div>
+    <div class="row"><label>mag limit G ≤ <b id="ghi-v">${state.ghi.toFixed(1)}</b>
+      <span class="inline-chk"><input type="checkbox" id="hide-chk" ${state.hide ? 'checked' : ''}> hide fainter</span></label>
+      <input type="range" id="ghi" min="${D.GMIN.toFixed(2)}" max="${D.GMAX.toFixed(2)}" step="0.1" value="${state.ghi}">
+    </div>
   </div>
 
   <details class="group" open>
     <summary>Field</summary>
-    <div class="row"><label>FOV <b id="fov-v">${state.fov.toFixed(1)}</b>° <span class="tiny" id="fov-note"></span></label>
-      <input type="range" id="fov" min="1" max="5" step="0.1" value="${state.fov}">
-      <div class="fov-snaps">${FOV_SNAPS.map(s => `<span class="fov-snap" data-fov="${s}">${s}°</span>`).join('')}</div>
+    <div class="row"><label class="sec-lab" id="cand-lab">${cand.lab}</label>
+      <select id="cand-sel">${NONE_OPT}${cand.html}</select>
     </div>
-    <div class="row"><label>promising fields <span class="tiny" id="cand-note">${cand.note}</span></label>
-      <select id="cand-sel"><option value="">— None selected —</option>${cand.html}</select>
-    </div>
-    <div class="row"><label>saved fields</label>
+    <div class="row"><label class="sec-lab saved-lab">SAVED FIELDS
+      <button id="export-saved" class="micro-btn">copy list</button>
+      <button id="import-saved" class="micro-btn">paste list</button></label>
       <div class="save-row">
         <button id="save-field" class="mini-btn">☆ save field</button>
         <button id="hist-back" class="mini-btn" title="back to the previous field">◀</button>
@@ -196,88 +265,69 @@ function buildSidebar() {
       </div>
     </div>
     <div id="saved-list"></div>
-    <div class="row">
-      <button id="export-saved" class="mini-btn">copy field list</button>
-      <button id="import-saved" class="mini-btn">paste field list</button>
-    </div>
   </details>
 
-  <details class="group" open>
+  <details class="group">
     <summary>3D view</summary>
-    <div class="row"><label>color by</label>
-      <select id="mode-sel">
-        ${option('dist', 'Distance [kpc]', state.mode === 'dist')}
-        ${option('mag', 'Gaia G magnitude', state.mode === 'mag')}
-        ${option('dens', 'On-sky density', state.mode === 'dens')}
-        ${option('hemi', 'Hemisphere visibility', state.mode === 'hemi')}
-        ${option('stream', 'Stream (palette)', state.mode === 'stream')}
-      </select>
-    </div>
-    <div class="row"><label>mag limit G ≤ <b id="ghi-v">${state.ghi.toFixed(1)}</b>
-      <span class="inline-chk"><input type="checkbox" id="hide-chk" ${state.hide ? 'checked' : ''}> hide beyond limit</span></label>
-      <input type="range" id="ghi" min="${D.GMIN.toFixed(2)}" max="${D.GMAX.toFixed(2)}" step="0.1" value="${state.ghi}">
-    </div>
-    <div class="row checks catalogs"><label class="tiny sec-lab">show</label>
+    <div class="row checks catalogs"><label class="tiny sec-lab">display objects</label>
       <label><input type="checkbox" id="streams-chk" ${state.streamsOn ? 'checked' : ''}> <i class="sw str"></i>streams</label>
       <label><input type="checkbox" id="dg-chk" ${state.dgOn ? 'checked' : ''}> <i class="sw dg"></i>dwarfs</label>
       <label><input type="checkbox" id="gc-chk" ${state.gcOn ? 'checked' : ''}> <i class="sw gc"></i>GCs</label>
       <label><input type="checkbox" id="qso-chk" ${state.qsoOn ? 'checked' : ''}> <i class="sw qso"></i>quasars</label>
       <label><input type="checkbox" id="halo-chk" ${state.haloOn ? 'checked' : ''}> <i class="sw halo"></i>halo RRL</label>
     </div>
-    <div class="row checks">
+    <div class="row"><label class="tiny sec-lab">display fields</label></div>
+    ${D.CONES.map(c => `
+    <div class="row combo cone-row">
+      <button class="cone-btn" data-cone="${c.key}" style="--cone:${c.color}">${c.name} <span class="tiny">(${c.fov}°)</span></button>
+      <button class="mini-btn cone-go" data-cone="${c.key}">GO</button>
+    </div>`).join('')}
+    <div class="row checks"><label class="tiny sec-lab">display options</label>
       <label><input type="checkbox" id="disk-chk" ${state.diskOn ? 'checked' : ''}> disk <span class="tiny">(R=10 kpc · z=1 kpc)</span></label>
-      <label><input type="checkbox" id="box-chk" ${state.boxOn ? 'checked' : ''}> show ${D.BOX_R} kpc box</label>
       <label><input type="checkbox" id="hisph-chk" ${state.hiSphere ? 'checked' : ''}> HI shell</label>
+      <label><input type="checkbox" id="box-chk" ${state.boxOn ? 'checked' : ''}> ${D.BOX_R} kpc box</label>
+      <label><input type="checkbox" id="hemi-cones" ${state.hemiCones ? 'checked' : ''}> site visibility</label>
     </div>
-    <div class="row checks"><label class="tiny sec-lab">cones</label>
-      <label><input type="checkbox" id="cone-kepler" ${state.coneKepler ? 'checked' : ''}> <i class="sw" style="background:#4caf50"></i>Kepler</label>
-      <label><input type="checkbox" id="cone-m31" ${state.coneM31 ? 'checked' : ''}> <i class="sw" style="background:#5a8fd4"></i>M31</label>
-      <label><input type="checkbox" id="cone-m82" ${state.coneM82 ? 'checked' : ''}> <i class="sw" style="background:#c77bd8"></i>M82</label>
-      <label><input type="checkbox" id="hemi-cones" ${state.hemiCones ? 'checked' : ''}> telescope cones</label>
-    </div>
-    <div class="row seg theme-seg">
-      <button id="theme-dark" class="segbtn ${state.theme === 'dark' ? 'active' : ''}">dark</button>
-      <button id="theme-light" class="segbtn ${state.theme === 'light' ? 'active' : ''}">light</button>
+    <div class="row">
+      <button id="theme-btn" class="theme-btn ${state.theme === 'light' ? 'on' : ''}">white background</button>
     </div>
   </details>
 
   <details class="group" open>
     <summary>Backlights</summary>
-    <div class="subhead">Streams</div>
+    <div class="subhead" style="color:${streamHead}">Streams</div>
     <div class="row checks">
       <label><input type="checkbox" id="via-chk" ${state.via ? 'checked' : ''}> Via only</label>
-      <label><input type="checkbox" id="hl-stream" ${state.hlStream ? 'checked' : ''}> highlight</label>
+      <label><input type="checkbox" id="hl-stream" ${state.hlStream ? 'checked' : ''}> highlight selected</label>
     </div>
     <div class="row combo">
-      <select id="stream-sel"><option value="">— None selected —</option>${sortedStreams.map(s => option(s, s, state.streamSel === s)).join('')}</select>
-      <button id="stream-go" class="mini-btn" title="go to this stream">→</button>
+      <select id="stream-sel">${NONE_OPT}${sortedStreams.map(s => option(s, s, state.streamSel === s)).join('')}</select>
+      <button id="stream-go" class="mini-btn" title="go to this stream">GO</button>
     </div>
     <div class="row"><label>scan along stream</label>
       <input type="range" id="scan-stream" disabled>
     </div>
-    <div class="subhead">Dwarf galaxies</div>
+    <div class="subdiv"></div>
+    <div class="subhead" style="color:${UI.dwarf}">Dwarf galaxies</div>
     <div class="row checks">
-      <label><input type="checkbox" id="mem-chk" ${state.memOn ? 'checked' : ''}> <i class="sw dg"></i>show dwarf members</label>
-    </div>
-    <div class="row checks">
-      <label><input type="checkbox" id="via-dg-chk" ${state.viaDwarfs ? 'checked' : ''}> Via only <span class="tiny">(&lt;300 kpc)</span></label>
-      <label><input type="checkbox" id="hl-dwarf" ${state.hlDwarf ? 'checked' : ''}> highlight</label>
+      <label><input type="checkbox" id="via-dg-chk" ${state.viaDwarfs ? 'checked' : ''}> &lt;300 kpc only</label>
+      <label><input type="checkbox" id="hl-dwarf" ${state.hlDwarf ? 'checked' : ''}> highlight selected</label>
     </div>
     <div class="row combo">
-      <select id="dg-sel"><option value="">— None selected —</option>${dgOpts.join('')}</select>
-      <button id="dg-go" class="mini-btn" title="go to this dwarf">→</button>
+      <select id="dg-sel">${NONE_OPT}${dgOpts.join('')}</select>
+      <button id="dg-go" class="mini-btn" title="go to this dwarf">GO</button>
     </div>
-    <div class="subhead">Globular clusters</div>
     <div class="row checks">
-      <label><input type="checkbox" id="hl-gc" ${state.hlGC ? 'checked' : ''}> highlight</label>
+      <label><input type="checkbox" id="mem-chk" ${state.memOn ? 'checked' : ''}> display members</label>
+    </div>
+    <div class="subdiv"></div>
+    <div class="subhead" style="color:${UI.gc}">Globular clusters</div>
+    <div class="row checks">
+      <label><input type="checkbox" id="hl-gc" ${state.hlGC ? 'checked' : ''}> highlight selected</label>
     </div>
     <div class="row combo">
-      <select id="gc-sel"><option value="">— None selected —</option>${gcOpts.join('')}</select>
-      <button id="gc-go" class="mini-btn" title="go to this cluster">→</button>
-    </div>
-    <div class="subhead">Other</div>
-    <div class="row seg">
-      ${D.CONES.map(c => `<button class="mini-btn cone-go" data-cone="${c.key}">${c.name}</button>`).join('')}
+      <select id="gc-sel">${NONE_OPT}${gcOpts.join('')}</select>
+      <button id="gc-go" class="mini-btn" title="go to this cluster">GO</button>
     </div>
   </details>
 
@@ -299,14 +349,18 @@ function buildSidebar() {
       </select>
     </div>
   </details>
-  <div class="side-note tiny">drag the red arrow in 3D, drag the circle on the maps,
-    or double-click any star / object / map point to move the field. Links encode the exact field.</div>`;
+
+  <details class="group">
+    <summary>Input Catalogs</summary>
+    <div id="catalog-list">${catalogsHtml()}</div>
+  </details>`;
 
   wireSidebar();
   renderSaved();
   syncFov();
   syncHistory();
   syncLockButtons();
+  for (const id of ['cand-sel', 'stream-sel', 'dg-sel', 'gc-sel']) syncNoneSel($(id));
 }
 
 function wireSidebar() {
@@ -319,7 +373,7 @@ function wireSidebar() {
     set({ fov: v }, 'field');
     syncFov();
   });
-  document.querySelectorAll('.fov-snap').forEach(el => {
+  document.querySelectorAll('.fov-snap, .fov-dot').forEach(el => {
     el.addEventListener('click', () => {
       const v = parseFloat(el.dataset.fov);
       fovEl.value = v;
@@ -329,6 +383,7 @@ function wireSidebar() {
   });
 
   $('cand-sel').addEventListener('change', e => {
+    syncNoneSel(e.target);
     if (e.target.value === '') return;
     const c = D.CANDIDATES[+e.target.value];
     state.fov = c.fov;
@@ -336,7 +391,7 @@ function wireSidebar() {
     slideField(c.lam, c.bet);
   });
 
-  $('stream-sel').addEventListener('change', e => set({ streamSel: e.target.value || null }));
+  $('stream-sel').addEventListener('change', e => { syncNoneSel(e.target); set({ streamSel: e.target.value || null }); });
   $('stream-go').addEventListener('click', () => { if (state.streamSel) gotoStream(state.streamSel); });
   $('scan-stream').addEventListener('input', e => {
     if (!TRACK.list) return;
@@ -354,21 +409,29 @@ function wireSidebar() {
   $('disk-chk').addEventListener('change', e => set({ diskOn: e.target.checked }));
   $('box-chk').addEventListener('change', e => set({ boxOn: e.target.checked }));
   $('hisph-chk').addEventListener('change', e => set({ hiSphere: e.target.checked }));
-  $('cone-kepler').addEventListener('change', e => set({ coneKepler: e.target.checked }));
-  $('cone-m31').addEventListener('change', e => set({ coneM31: e.target.checked }));
-  $('cone-m82').addEventListener('change', e => set({ coneM82: e.target.checked }));
   $('hemi-cones').addEventListener('change', e => set({ hemiCones: e.target.checked }));
-  $('theme-dark').addEventListener('click', () => { set({ theme: 'dark' }); syncTheme(); });
-  $('theme-light').addEventListener('click', () => { set({ theme: 'light' }); syncTheme(); });
+  $('theme-btn').addEventListener('click', e => {
+    const light = state.theme !== 'light';
+    set({ theme: light ? 'light' : 'dark' });
+    e.target.classList.toggle('on', light);
+  });
+  document.querySelectorAll('.cone-btn').forEach(b => {
+    b.classList.toggle('on', !!state[b.dataset.cone]);
+    b.addEventListener('click', () => {
+      const key = b.dataset.cone;
+      set({ [key]: !state[key] });
+      b.classList.toggle('on', !!state[key]);
+    });
+  });
 
   $('via-chk').addEventListener('change', e => set({ via: e.target.checked }));
   $('hl-stream').addEventListener('change', e => set({ hlStream: e.target.checked }));
   $('via-dg-chk').addEventListener('change', e => set({ viaDwarfs: e.target.checked }));
   $('hl-dwarf').addEventListener('change', e => set({ hlDwarf: e.target.checked }));
   $('hl-gc').addEventListener('change', e => set({ hlGC: e.target.checked }));
-  $('gc-sel').addEventListener('change', e => set({ gcSel: e.target.value === '' ? null : +e.target.value }));
+  $('gc-sel').addEventListener('change', e => { syncNoneSel(e.target); set({ gcSel: e.target.value === '' ? null : +e.target.value }); });
   $('gc-go').addEventListener('click', () => { if (state.gcSel !== null) gotoGC(state.gcSel); });
-  $('dg-sel').addEventListener('change', e => set({ dwarfSel: e.target.value === '' ? null : +e.target.value }));
+  $('dg-sel').addEventListener('change', e => { syncNoneSel(e.target); set({ dwarfSel: e.target.value === '' ? null : +e.target.value }); });
   $('dg-go').addEventListener('click', () => { if (state.dwarfSel !== null) gotoDwarf(state.dwarfSel); });
   document.querySelectorAll('.cone-go').forEach(b => {
     b.addEventListener('click', () => {
@@ -394,7 +457,7 @@ function wireSidebar() {
     const txt = JSON.stringify(loadSaved(), null, 1);
     try { await navigator.clipboard.writeText(txt); e.target.textContent = 'copied ✓'; }
     catch { window.prompt('copy this:', txt); }
-    setTimeout(() => { e.target.textContent = 'copy field list'; }, 1400);
+    setTimeout(() => { e.target.textContent = 'copy list'; }, 1400);
   });
   $('import-saved').addEventListener('click', () => {
     const txt = window.prompt('paste a saved-fields JSON list:');
@@ -407,6 +470,7 @@ function wireSidebar() {
 
   window.addEventListener('v2-goto-stream', e => {
     $('stream-sel').value = e.detail;
+    syncNoneSel($('stream-sel'));
     set({ streamSel: e.detail });
     gotoStream(e.detail);
     showTab('field');
@@ -420,10 +484,17 @@ function wireSidebar() {
   on('field', refreshCandidates);
   on('field', syncFov);            // fov can change via history / cones / saved chips
   on('ui', syncFov);
+  on('quaia', refreshCatalogs);
+  on('halo', refreshCatalogs);
   // a lingering hover tooltip after scrolling the dossier
   document.getElementById('dossier').addEventListener('scroll', () => {
     document.getElementById('tooltip2d').style.display = 'none';
   }, { passive: true });
+}
+
+function refreshCatalogs() {
+  const el = $('catalog-list');
+  if (el) el.innerHTML = catalogsHtml();
 }
 
 function syncFov() {
@@ -435,14 +506,9 @@ function syncFov() {
     fovEl.value = Math.min(5, Math.max(1, state.fov));
   }
   $('fov-note').textContent = state.fov <= 1.001 ? 'Via field' : `≈ ${Math.round(state.fov ** 2)} pointings`;
-  for (const s of document.querySelectorAll('.fov-snap')) {
+  for (const s of document.querySelectorAll('.fov-snap, .fov-dot')) {
     s.classList.toggle('active', Math.abs(parseFloat(s.dataset.fov) - state.fov) < 0.01);
   }
-}
-
-function syncTheme() {
-  $('theme-dark')?.classList.toggle('active', state.theme === 'dark');
-  $('theme-light')?.classList.toggle('active', state.theme === 'light');
 }
 
 function syncHistory() {
@@ -472,12 +538,13 @@ function refreshCandidates() {
   if (key === candKey) return;
   candKey = key;
   const cand = candOptions();
-  sel.innerHTML = `<option value="">— None selected —</option>${cand.html}`;
-  $('cand-note').textContent = cand.note;
+  sel.innerHTML = `${NONE_OPT}${cand.html}`;
+  syncNoneSel(sel);
+  $('cand-lab').textContent = cand.lab;
 }
 
-// saved-field default label: `1° • ℓ −28.9, b 79.8 • G ≤ 20` (object name replaces
-// the coordinates when the field was saved while locked on an object)
+// saved-field label: `1° • ℓ −28.9, b 79.8 • G ≤ 20` (object name replaces the
+// coordinates when the field was saved while locked on an object)
 export function fieldLabelHtml(f) {
   const fov = f.fov ? `${(+f.fov).toFixed(f.fov % 1 ? 1 : 0)}°` : '1°';
   const mid = f.obj ? f.obj
@@ -499,16 +566,8 @@ function renderSaved() {
     chip.className = 'chip';
     const lbl = document.createElement('span');
     lbl.className = 'lbl';
-    if (f.label) lbl.textContent = f.label;
-    else lbl.innerHTML = fieldLabelHtml(f);
-    lbl.contentEditable = 'true';
-    lbl.title = `Λ=${f.lam.toFixed(2)} B=${f.bet.toFixed(2)}${f.fov ? ` · ${f.fov}°` : ''} (click name to rename)`;
-    lbl.addEventListener('click', e => e.stopPropagation());
-    lbl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); lbl.blur(); } });
-    lbl.addEventListener('blur', () => {
-      const l2 = loadSaved();
-      if (l2[i]) { l2[i].label = lbl.textContent.trim(); storeSaved(l2); }
-    });
+    lbl.innerHTML = fieldLabelHtml(f);
+    lbl.title = `Λ=${f.lam.toFixed(2)} B=${f.bet.toFixed(2)}${f.fov ? ` · ${f.fov}°` : ''}`;
     const del = document.createElement('span');
     del.className = 'del';
     del.textContent = '×';
@@ -534,7 +593,6 @@ function showTab(name) {
   for (const p of document.querySelectorAll('.tab-page')) {
     p.style.display = p.dataset.tab === name ? '' : 'none';
   }
-  if (name === 'halo') buildHalo();
   emit('fieldmodel', {});           // panels in the newly shown tab need a redraw
 }
 
@@ -571,6 +629,8 @@ async function boot() {
     state.glo = D.GMIN;
     state.ghi = Math.min(20.0, D.GMAX);
     initHash();                                   // may override from a shared link
+    if (state.tab === 'halo') state.tab = 'field';   // the halo tab is gone (8-20-26)
+    if (state.mode === 'dens') state.mode = 'dist';  // density coloring removed (8-20-26)
     histSeed();
     initFieldModel();
     buildSidebar();
@@ -581,7 +641,6 @@ async function boot() {
     initHists($('hists-wrap'));
     initAllsky($('allsky-wrap'));
     initSgrmap($('sgrmap-wrap'));
-    initHalo($('halo-wrap'));
     for (const t of document.querySelectorAll('.tab-btn')) {
       t.addEventListener('click', () => showTab(t.dataset.tab));
     }

@@ -26,7 +26,7 @@ export function initSgrmap(container) {
   expander = makeExpandable(container, { onToggle: () => { bgCache = {}; starCache = null; hoverObj = null; draw(); } });
   on('fieldmodel', draw);
   new ResizeObserver(() => { bgCache = {}; starCache = null; draw(); }).observe(container);
-  cv.addEventListener('pointerdown', (e) => { dragging = true; cv.setPointerCapture(e.pointerId); moveTo(e, true); });
+  cv.addEventListener('pointerdown', (e) => { dragging = true; try { cv.setPointerCapture(e.pointerId); } catch {} moveTo(e, true); });
   cv.addEventListener('pointermove', (e) => {
     if (dragging) { moveTo(e, true); return; }
     if (expander.isExpanded()) hoverStructure(e);
@@ -162,6 +162,7 @@ function buildStarLayer(w, h) {
     const sel = state.hlDwarf ? state.dwarfSel : null;
     for (let i = 0; i < D.DWF.lam.length; i++) {
       if (Math.abs(D.DWF.bet[i]) > 32) continue;
+      if (state.viaDwarfs && !(D.DWF.dist[i] < 300)) continue;
       const [X, Y] = toPx(D.DWF.lam[i], D.DWF.bet[i]);
       diamond(ctx, X, Y, i === sel ? 6.2 : 3.4, i === sel ? UI.accent : UI.dwarf, '#00000088');
       if (i === sel) label(ctx, D.DWF.name[i], X + 8, Y + 3, { size: 8.5, color: UI.accent });
@@ -171,11 +172,15 @@ function buildStarLayer(w, h) {
   return off;
 }
 
+const ASPECT = 1.95;   // h/w — fixed, so the enlarged view keeps the strip's shape
+
 function draw() {
-  const w = wrap.clientWidth;
-  if (!w) return;
-  const maxH = Math.max(320, window.innerHeight - 60);
-  const h = Math.min(maxH, Math.round(Math.min(520, Math.max(380, w * 1.35))));
+  const availW = wrap.clientWidth;
+  if (!availW) return;
+  const availH = Math.max(320, window.innerHeight - 60);
+  let w = Math.round(availW * 0.8);
+  let h = Math.round(w * ASPECT);
+  if (h > availH) { h = availH; w = Math.round(h / ASPECT); }
   const ctx = fitCanvas(cv, w, h);
   map.w = w - map.x0 - 6;
   map.h = h - map.y0 - 20;

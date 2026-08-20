@@ -28,7 +28,9 @@ export function initLadder(container) {
     }
     if (best !== hoverRung) {
       hoverRung = best;
-      emit('hilite', best ? { type: 'rung', rung: best } : null);
+      emit('hilite', !best ? null
+        : best.kind === 'qso' ? { type: 'kind', kind: 1 }
+        : { type: 'rung', rung: best });
       cvs.style.cursor = best ? 'pointer' : '';
     }
   });
@@ -128,5 +130,6 @@ function draw() {
   if (L.qsoRung) {
     dot(ctx, x1 - 20, y, 4.5, KC.qso, 0.95);
     label(ctx, `${L.nQso} quasars`, x1 - 30, y + 3, { align: 'right', size: 8.5, color: UI.textDim });
+    iconHits.push({ x: x1 - 20, y, r: 8, rung: { kind: 'qso' } });
   }
 }

@@ -31,7 +31,7 @@ export function initAllsky(container) {
   new ResizeObserver(() => { bgCache = {}; starCache = null; draw(); }).observe(container);
   cv.addEventListener('pointerdown', (e) => {
     dragging = true;
-    cv.setPointerCapture(e.pointerId);
+    try { cv.setPointerCapture(e.pointerId); } catch {}
     moveTo(e, true);
   });
   cv.addEventListener('pointermove', (e) => {
@@ -192,6 +192,7 @@ function buildStarLayer(w, h) {
     ctx.fillStyle = UI.member;
     ctx.globalAlpha = 0.7;
     for (let i = 0; i < D.MEM.lam.length; i += 2) {
+      if (state.viaDwarfs && !(D.MEM.dist[i] < 300)) continue;
       const [mx, my] = C.mollXY(D.MEM.l[i], D.MEM.b[i]);
       const [X, Y] = toPx(mx, my);
       ctx.fillRect(X, Y, 1.6, 1.6);
@@ -210,6 +211,7 @@ function buildStarLayer(w, h) {
   if (state.dgOn) {
     const sel = state.hlDwarf ? state.dwarfSel : null;
     for (let i = 0; i < D.DWF.lam.length; i++) {
+      if (state.viaDwarfs && !(D.DWF.dist[i] < 300)) continue;
       const [mx, my] = C.mollXY(D.DWF.l[i], D.DWF.b[i]);
       const [X, Y] = toPx(mx, my);
       diamond(ctx, X, Y, i === sel ? 6 : 3.2, i === sel ? UI.accent : UI.dwarf, '#00000088');
@@ -259,6 +261,10 @@ function draw() {
   drawHoverStructure(ctx);
   // field circle (no center pip — the outline is the field)
   drawSkyCircle(ctx, F.l0, F.b0, Math.max(state.fov / 2, 1.2), UI.accent, 1.8);
+  if (!expander.isExpanded()) {
+    label(ctx, 'click or drag to move field', 8, 15, { size: 9.5 });
+    label(ctx, 'or expand to explore', 8, 27, { size: 9.5 });
+  }
   cv.style.cursor = 'crosshair';
 }
 

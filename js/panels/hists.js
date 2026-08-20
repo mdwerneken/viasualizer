@@ -1,6 +1,6 @@
 // Field histograms (distance, magnitude, NN separation) and the pair plot, with the
 // pair-plot controls (moved here from the sidebar). Stacked by source kind, ∞ bin for
-// quasars (v1's _kind_hist port). Bars have hover readouts: "(18–20, 4)".
+// quasars (v1's _kind_hist port). Bars have hover readouts: "4 at 18–20 kpc".
 import { D } from '../data.js';
 import { state, set, on } from '../state.js';
 import { F } from '../fieldmodel.js';
@@ -50,7 +50,7 @@ function barHover(id, e) {
   const x = e.clientX - r.left, y = e.clientY - r.top;
   for (const b of rec.bars) {
     if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) {
-      tipEl.innerHTML = `(${b.lab}, ${b.count})`;
+      tipEl.innerHTML = b.lab;
       tipEl.style.display = 'block';
       placeTooltip(tipEl, e);
       return;
@@ -93,10 +93,12 @@ function yTicks(ctx, plot, maxC) {
 }
 
 let pairStale = false;
+const labKpc = (n, a, b) => `${n} at ${a}–${b} kpc`;
+const labMag = (n, a, b) => `${n} at G=${a}–${b}`;
 function drawAll(opts) {
-  drawKindHist('dist', F.src.dist, 'field distances', 'dist [kpc]', true,
+  drawKindHist('dist', F.src.dist, 'field distances', 'dist [kpc]', true, labKpc,
     `${F.idx.filter(i => D.s_dist_known[i]).length} meas · ${F.idx.filter(i => !D.s_dist_known[i]).length} geom`);
-  drawKindHist('mag', F.src.G, 'field magnitudes', 'Gaia G', false);
+  drawKindHist('mag', F.src.G, 'field magnitudes', 'Gaia G', false, labMag);
   drawNN();
   // the O(n^2) pair plot waits until a live drag ends
   if (opts?.live && F.src.n > 300) { pairStale = true; return; }
@@ -104,7 +106,7 @@ function drawAll(opts) {
   drawPair(els.pair.cvs);
 }
 
-function drawKindHist(id, values, title, xlab, infBin, note) {
+function drawKindHist(id, values, title, xlab, infBin, labFmt, note) {
   const rec = els[id];
   const cvs = rec.cvs;
   const w = cvs.parentElement.clientWidth;
@@ -158,7 +160,7 @@ function drawKindHist(id, values, title, xlab, infBin, note) {
       rec.bars.push({
         x0: plot.x + b * colW, x1: plot.x + (b + 1) * colW,
         y0: plot.y, y1: plot.y + plot.h,
-        lab: `${fmtTick(b0)}–${fmtTick(b1)}`, count: tot[b],
+        lab: labFmt(tot[b], fmtTick(b0), fmtTick(b1)),
       });
     }
   }
@@ -169,7 +171,7 @@ function drawKindHist(id, values, title, xlab, infBin, note) {
     label(ctx, '∞', plot.x + (nb + 1.5) * colW, h - 16, { align: 'center', size: 12, color: KIND_COL[1] });
     rec.bars.push({
       x0: plot.x + (nb + 1) * colW, x1: plot.x + (nb + 2) * colW,
-      y0: plot.y, y1: plot.y + plot.h, lab: '∞', count: nInf,
+      y0: plot.y, y1: plot.y + plot.h, lab: `${nInf} at ∞ (quasars)`,
     });
   }
   // axes
@@ -215,7 +217,7 @@ function drawNN() {
       rec.bars.push({
         x0: plot.x + b * colW, x1: plot.x + (b + 1) * colW,
         y0: plot.y, y1: plot.y + plot.h,
-        lab: `${(+b0.toFixed(1))}–${(+b1.toFixed(1))}′`, count: hist.counts[b],
+        lab: `${hist.counts[b]} at ${(+b0.toFixed(1))}–${(+b1.toFixed(1))}′`,
       });
     }
   }
@@ -388,7 +390,7 @@ function drawKindHistInline(ctx, plot, w, h, values, kinds, title, xlab) {
       els.pair.bars.push({
         x0: plot.x + b * colW, x1: plot.x + (b + 1) * colW,
         y0: plot.y, y1: plot.y + plot.h,
-        lab: `${fmtTick(b0)}–${fmtTick(b1)}`, count: tot[b],
+        lab: `${tot[b]} at ${fmtTick(b0)}–${fmtTick(b1)} kpc`,
       });
     }
   }

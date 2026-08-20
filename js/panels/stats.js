@@ -27,7 +27,8 @@ const red = (n, hl) => `<span class="tcount"${hl !== undefined ? ` data-hl="${hl
 function render() {
   // --- targets box ---
   const L = [];
-  L.push(`<div class="targets-head">${red(F.fibers.targets)} targets:</div>`);
+  L.push(`<div class="targets-head">${red(F.fibers.targets)} targets: ` +
+    `<span class="tiny hint">(hover number to highlight)</span></div>`);
   if (F.idx.length) {
     const parts = F.comp.slice(0, 6).map(([nm, c]) => `${nm} (${c}★)`);
     L.push(`<div><b>${red(F.idx.length, 0)} stream star${F.idx.length > 1 ? 's' : ''}</b> — ` +
@@ -80,7 +81,7 @@ function render() {
     : '<span class="badge none">not visible</span>';
   barEl.innerHTML =
     `<span class="coord"><span class="coord-lab">Galactic</span> <i>ℓ</i> <input id="in-l" value="${f2(F.l0)}"> <i>b</i> <input id="in-b" value="${f2(F.b0)}"></span>` +
-    `<span class="coord"><span class="coord-lab">Sagittarius</span> Λ <input id="in-lam" value="${f2(state.lam0)}"> B <input id="in-bet" value="${f2(state.bet0)}"></span>` +
+    `<span class="coord"><span class="coord-lab">Sgr stream</span> Λ <input id="in-lam" value="${f2(state.lam0)}"> B <input id="in-bet" value="${f2(state.bet0)}"></span>` +
     `<span class="coord"><span class="coord-lab">Equatorial</span> α <input id="in-ra" value="${f2(F.ra)}"> δ <input id="in-dec" value="${f2(F.dec)}"></span>` +
     site +
     `<button id="copy-link" class="mini-btn" title="copy a shareable link to this exact field">copy link</button>`;
@@ -95,17 +96,17 @@ function fiberHtml() {
     ['halo RRL', f.halo ?? 0, KIND_COL[3]],
     ['QSO', f.qsos, KIND_COL[1]],
   ].filter(s => s[1] > 0);
-  const pct = v => Math.min(100, v / f.positioners * 100);
+  const pct = v => Math.min(100, v / f.science * 100);
   let barHtml = '<div class="fiber-bar">';
   for (const [nm, v, c] of segs) {
     barHtml += `<span style="width:${pct(v)}%;background:${c}" title="${nm}: ${v}"></span>`;
   }
   barHtml += '</div>';
   const status = f.over
-    ? `<b class="over">${f.over} over</b> the ${f.positioners} fibers — field is target-rich`
+    ? `<b class="over">${f.over} over</b> the ${f.science} Viaspec fibers — field is target-rich`
     : `<b>${f.spare}</b> spare fibers for ancillary science`;
   return `<div class="fiber-inline">${barHtml}` +
-    `<div class="fiber-line">Via (1° FOV · ${f.positioners} fibers) → ${status}</div>` +
+    `<div class="fiber-line">Via (1° FOV · ${f.science} Viaspec fibers) → ${status}</div>` +
     (state.fov > 1.001 ? `<div class="tiny warn">FOV ${state.fov}° > instrument field — budget applies per 1° pointing</div>` : '') +
     `</div>`;
 }
