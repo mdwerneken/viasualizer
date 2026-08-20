@@ -69,27 +69,42 @@ function draw() {
     x0 + (Math.log10(Math.max(d, dMin)) - Math.log10(dMin)) /
     (Math.log10(dMax) - Math.log10(dMin)) * (x1 - x0 - 46));
 
-  // measure + lay out each group's labels first (wrapping onto extra lines when a
-  // group is crowded), so the canvas height fits before anything is drawn
+  // measure + lay out each group's labels first, so the canvas height fits before
+  // anything is drawn. Crowded groups show 2 labels + "+N more"; labels near the
+  // axis end go to the LEFT of their icon; overlaps wrap to extra lines.
   const meas = cvs.getContext('2d');
   meas.font = '8.5px "SF Mono", ui-monospace, Menlo, monospace';
+  const XRIGHT = w - 58;                        // past this, labels flip to the left side
+  const lbl = r => (r.kind === 'GC') ? r.label : `${r.label} (${r.n}★)`;
   const layouts = L.groups.map(grp => {
     const items = grp.map(r => ({ r, X: lx(r.dist) })).sort((a, b) => a.X - b.X);
+    const labItems = items.length > 3
+      ? [{ it: items[0], txt: lbl(items[0].r) },
+         { it: items[1], txt: lbl(items[1].r) },
+         { it: items[2], txt: `+${items.length - 2} more` }]
+      : items.map(it => ({ it, txt: lbl(it.r) }));
     const lines = [];
-    let cursor = -Infinity, line = 0;
-    for (const it of items) {
-      const txt = (it.r.kind === 'GC') ? it.r.label : `${it.r.label} (${it.r.n}★)`;
+    const spans = [];                           // occupied [x0,x1] intervals per line
+    let nLines = 1;
+    for (const { it, txt } of labItems) {
       const tw = meas.measureText(txt).width;
-      let tx = Math.min(it.X + 9, w - tw - 6);
-      if (tx < cursor + 8) tx = cursor + 8;
-      if (tx + tw > w - 4) {                     // wrap to a continuation line
-        line++;
-        tx = Math.max(x0, Math.min(items[0].X + 9, w - tw - 6));
+      let tx = it.X + 9;
+      if (tx + tw > XRIGHT) tx = it.X - 9 - tw;
+      tx = Math.max(2, Math.min(tx, w - tw - 2));
+      let line = 0, placed = false;
+      for (; line < 3; line++) {
+        const row = spans[line] ?? (spans[line] = []);
+        if (!row.some(([a, b]) => tx < b + 6 && tx + tw > a - 6)) {
+          row.push([tx, tx + tw]);
+          placed = true;
+          break;
+        }
       }
+      if (!placed) { line = 3; (spans[3] ?? (spans[3] = [])).push([tx, tx + tw]); }
       lines.push({ txt, tx, line });
-      cursor = tx + tw;
+      nLines = Math.max(nLines, line + 1);
     }
-    return { items, lines, nLines: line + 1 };
+    return { items, lines, nLines };
   });
   const rowH = 21, lineH = 11;
   let hTot = 22;

@@ -13,6 +13,7 @@ import { placeTooltip } from '../scene3d.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};        // himap key -> offscreen canvas (HI + stars + equator)
+let hiStretchSky = {};   // himap -> {v0, v1} used for the background stretch
 let map = { w: 0, h: 0, sx: 1, sy: 1, cx: 0, cy: 0 };
 let dragging = false;
 let hoverObj = null;     // {type:'stream'|'gc'|'dwarf', id} while enlarged
@@ -98,6 +99,7 @@ function buildBg(w, h) {
     for (let i = 0; i < grid.length; i += 11) if (Number.isFinite(grid[i])) samp.push(grid[i]);
     samp.sort((a, b) => a - b);
     const v0 = C.quantileSorted(samp, 0.05), v1 = C.quantileSorted(samp, 0.99);
+    if (!hiStretchSky[state.himap]) hiStretchSky[state.himap] = { v0, v1 };
     for (let y = 0; y < off.height; y++) {
       const my = -((y + 0.5) / dpr - map.cy) / map.sy;
       for (let x = 0; x < off.width; x++) {
@@ -265,7 +267,26 @@ function draw() {
     label(ctx, 'click or drag to move field', 6, 12, { size: 8 });
     label(ctx, 'or expand to explore', 6, 22, { size: 8 });
   }
+  drawHiBar(ctx, h);
   cv.style.cursor = 'crosshair';
+}
+
+// HI colorbar, bottom-left (larger in the enlarged view)
+function drawHiBar(ctx, h) {
+  const st = hiStretchSky[state.himap];
+  if (!st) return;
+  const useHvc = state.himap === 'hvc';
+  const scale = useHvc ? scales.hiRed : scales.hiBlue;
+  const big = expander.isExpanded();
+  const lw = big ? 130 : 56, lh = big ? 13 : 7, fs = big ? 11 : 8;
+  const lx = 6, ly = h - lh - (big ? 26 : 20);
+  for (let k = 0; k < lw; k++) {
+    ctx.fillStyle = scale.css(k / (lw - 1));
+    ctx.fillRect(lx + k, ly, 1.2, lh);
+  }
+  label(ctx, useHvc ? 'HVC log N(HI)' : 'log N(HI)', lx, ly - 4, { size: fs });
+  label(ctx, st.v0.toFixed(1), lx, ly + lh + fs + 2, { size: fs });
+  label(ctx, st.v1.toFixed(1), lx + lw, ly + lh + fs + 2, { align: 'right', size: fs });
 }
 
 // ---- whole-structure hover (enlarged view only) --------------------------------------

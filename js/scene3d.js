@@ -5,7 +5,7 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { D } from './data.js';
-import { state, setField, slideField, on, emit, galField } from './state.js';
+import { state, setField, slideField, replaceLock, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { UI, scales, streamColor, HEMI_COL, HEMI_LBL, hexToRgb01 } from './colors.js';
 
@@ -56,6 +56,20 @@ const DIAMOND_FS = `
     if (m > 0.5) discard;
     float soft = smoothstep(0.5, 0.38, m);
     gl_FragColor = vec4(vColor, vAlpha * soft);
+    if (gl_FragColor.a < 0.01) discard;
+  }`;
+// hexagram sprite (globular clusters — two overlapping triangles, as on the finder)
+const HEXAGRAM_FS = `
+  varying float vAlpha;
+  varying vec3 vColor;
+  void main() {
+    vec2 p = gl_PointCoord - 0.5;
+    p.y = -p.y;
+    bool t1 = p.y >= -0.25 && p.y <= 0.5 - 1.732 * abs(p.x);
+    vec2 q = -p;
+    bool t2 = q.y >= -0.25 && q.y <= 0.5 - 1.732 * abs(q.x);
+    if (!t1 && !t2) discard;
+    gl_FragColor = vec4(vColor, vAlpha);
     if (gl_FragColor.a < 0.01) discard;
   }`;
 
@@ -378,7 +392,8 @@ function catPoints(cat, colorHex, sizePx, kind, fs = STAR_FS) {
 }
 
 function buildObjectCatalogs() {
-  gcPts = catPoints(D.GCC, UI.gc, 6.5, 'gc');
+  // GCs: hexagram sprite + larger, so they read even under the field arrow
+  gcPts = catPoints(D.GCC, UI.gc, 11, 'gc', HEXAGRAM_FS);
   // dwarf galaxies: diamond sprite + larger, matching the finder glyph (Matt 8-19-26)
   dwfPts = catPoints(D.DWF, UI.dwarf, 10.5, 'dwarf', DIAMOND_FS);
   memPts = catPoints(D.MEM, UI.member, 2.4, 'member');
@@ -728,12 +743,12 @@ export function updatePointer() {
   needsRender = true;
 }
 
-// a locked survey cone extends to the arrow's field circle; others keep their default
+// survey cones always extend to the arrow's field-circle distance
 function syncConeLengths(ringDist) {
   if (!conesGroup) return;
   for (const m of conesGroup.children) {
     const cone = m.userData.cone;
-    const want = (state.lock?.kind === 'cone' && state.lock.id === cone.key) ? ringDist : cone.len;
+    const want = ringDist;
     if (Math.abs((m.userData.curLen ?? cone.len) - want) < 1e-6) continue;
     m.userData.curLen = want;
     const a = cone.r * Math.PI / 180;
@@ -866,8 +881,7 @@ function wirePicking(container) {
       lam = D.HALO.lam[p.i]; bet = D.HALO.bet[p.i];
       lock = { kind: 'star', id: p.i, name: 'halo RRL', dist: D.HALO.dist[p.i] };
     } else return;
-    state.lock = lock;
-    emit('lock');
+    replaceLock(lock);
     slideField(lam, bet, { keepLock: true });
   }
 

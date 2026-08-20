@@ -106,11 +106,10 @@ function fiberHtml() {
   }
   barHtml += '</div>';
   const status = f.over
-    ? `<b class="over">${f.over} over</b> the ${f.science} Viaspec fibers — field is target-rich`
+    ? `<b class="over">${f.over} over</b> the ${f.science} fibers — field is target-rich`
     : `<b>${f.spare}</b> spare fibers for ancillary science`;
   return `<div class="fiber-inline">${barHtml}` +
-    `<div class="fiber-line">Via (1° FOV · ${f.science} Viaspec fibers) → ${status}</div>` +
-    (state.fov > 1.001 ? `<div class="tiny warn">FOV ${state.fov}° > instrument field — budget applies per 1° pointing</div>` : '') +
+    `<div class="fiber-line">Via (1° FOV · ${f.science} fibers) → ${status}</div>` +
     `</div>`;
 }
 

@@ -21,11 +21,11 @@ export const state = {
   viaDwarfs: false,            // dwarfs: only those < 300 kpc (placeholder Via list)
   himap: 'total',              // total | hvc | overlay
   hiSphere: false,             // HI shell in 3D
-  coneKepler: true, coneM31: true, coneM82: true,   // survey cones (independent)
+  coneKepler: true, coneM31: false, coneM82: false, // survey cones (independent)
   hemiCones: false,            // MMT/Magellan visibility cones
   theme: 'dark',               // 3D view background: dark | light
   boxOn: false,                // 100 kpc reference box
-  diskOn: false,               // galactic disk (button-toggled; off by default since 8-20-26)
+  diskOn: true,                // galactic disk
   streamsOn: true, qsoOn: true, gcOn: true, dgOn: true, memOn: true, haloOn: false,
   cloudsOn: false, cloudFilter: 'all',   // all | compact | vhvc
   pairKind: 'dd',              // dd | dv | nn | dnn
@@ -80,6 +80,17 @@ export function histGo(step) {
   setField(f.lam, f.bet, { keepLock: true });
   hist.navigating = false;
   emit('history');
+}
+
+// swap the go-to lock; if the outgoing lock changed the FOV (survey cones), restore it
+// first so a 15° Kepler field can never leak into ordinary browsing
+export function replaceLock(newLock) {
+  const old = state.lock;
+  if (old && Number.isFinite(old.restoreFov) && (!newLock || newLock.id !== old.id)) {
+    state.fov = old.restoreFov;
+  }
+  state.lock = newLock;
+  emit('lock');
 }
 
 export function setField(lam, bet, opts = {}) {

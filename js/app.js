@@ -1,10 +1,10 @@
 // VIAsual v2 — app shell: boot, sidebar, tabs, saved fields + history, oracle verify.
 const DATA_DIR = 'data';
-export const CODE_VERSION = 'v2.4';
+export const CODE_VERSION = 'v2.5';
 
 import { loadCore, loadQuaia, loadHalo, D } from './data.js';
 import {
-  state, set, setField, slideField, on, emit, initHash,
+  state, set, setField, slideField, replaceLock, on, emit, initHash,
   loadSaved, storeSaved, saveCurrentField, galField, histState, histGo, histSeed,
 } from './state.js';
 import * as C from './compute.js';
@@ -99,23 +99,26 @@ function gotoStream(sel) {
   sc.step = (sc.max - sc.min) / 200 || 0.1;
   sc.value = mid;
   sc.disabled = false;
-  state.lock = { kind: 'stream', id: sel, name: sel };
-  emit('lock');
+  replaceLock({ kind: 'stream', id: sel, name: sel });
   const [lam, bet] = trackPos(mid);
   slideField(lam, bet, { keepLock: true });
 }
 function gotoGC(i) {
-  state.lock = { kind: 'gc', id: i, name: D.GCC.name[i], dist: D.GCC.dist[i] };
-  emit('lock');
+  replaceLock({ kind: 'gc', id: i, name: D.GCC.name[i], dist: D.GCC.dist[i] });
   slideField(D.GCC.lam[i], D.GCC.bet[i], { keepLock: true });
 }
 function gotoDwarf(i) {
-  state.lock = { kind: 'dwarf', id: i, name: D.DWF.name[i], dist: D.DWF.dist[i] };
-  emit('lock');
+  replaceLock({ kind: 'dwarf', id: i, name: D.DWF.name[i], dist: D.DWF.dist[i] });
   slideField(D.DWF.lam[i], D.DWF.bet[i], { keepLock: true });
 }
 export function gotoCone(cone) {
-  const restoreFov = Math.abs(state.fov - cone.fov) > 0.01 ? state.fov : undefined;
+  // re-clicking the locked cone keeps its original restore point; switching from
+  // another cone restores that one's FOV first (replaceLock), then we record ours
+  const sameCone = state.lock?.kind === 'cone' && state.lock.id === cone.key;
+  const keepRestore = sameCone ? state.lock.restoreFov : undefined;
+  replaceLock(null);
+  const restoreFov = sameCone ? keepRestore
+    : (Math.abs(state.fov - cone.fov) > 0.01 ? state.fov : undefined);
   state.fov = cone.fov;
   state.lock = { kind: 'cone', id: cone.key, name: cone.name, restoreFov };
   emit('lock');
@@ -175,7 +178,7 @@ function fovSnapDots() {
   return FOV_SNAPS.map(s => {
     const f = (s - 1) / 4;
     return `<span class="fov-dot" data-fov="${s}" style="left:${sliderLeft(f)}"></span>` +
-      `<span class="fov-snap" data-fov="${s}" style="left:${sliderLeft(f)}">${s}°</span>`;
+      `<span class="fov-snap" data-fov="${s}" style="left:${sliderLeft(f)}">${s}<span class="deg">°</span></span>`;
   }).join('');
 }
 
@@ -257,28 +260,6 @@ function buildSidebar() {
     </div>
   </div>
 
-  <details class="group" open>
-    <summary>Fields
-      <span class="sum-btns">
-        <button id="hist-back" class="micro-btn" title="back to the previous field">◀</button>
-        <button id="hist-fwd" class="micro-btn" title="forward again">▶</button>
-      </span>
-    </summary>
-    <div class="row"><label class="sec-lab" id="cand-lab">${cand.lab}</label>
-      <select id="cand-sel">${NONE_OPT}${cand.html}</select>
-    </div>
-    <div class="row"><label class="sec-lab">SAVED FIELDS</label>
-      <div class="save-row">
-        <button id="save-field" class="mini-btn">save field</button>
-        <span class="save-col">
-          <button id="export-saved" class="micro-btn">copy list</button>
-          <button id="import-saved" class="micro-btn">paste list</button>
-        </span>
-      </div>
-    </div>
-    <div id="saved-list"></div>
-  </details>
-
   <details class="group">
     <summary>3D display</summary>
     <div class="row checks catalogs"><label class="tiny sec-lab">display objects</label>
@@ -309,7 +290,32 @@ function buildSidebar() {
   </details>
 
   <details class="group" open>
-    <summary>Targets</summary>
+    <summary>Fields
+      <span class="sum-btns">
+        <button id="hist-back" class="micro-btn" title="back to the previous field">◀</button>
+        <button id="hist-fwd" class="micro-btn" title="forward again">▶</button>
+      </span>
+    </summary>
+    <div class="row"><label class="sec-lab" id="cand-lab">${cand.lab}</label>
+      <select id="cand-sel">${NONE_OPT}${cand.html}</select>
+    </div>
+    <div class="row"><label class="sec-lab">SAVED FIELDS</label>
+      <div class="save-row">
+        <button id="save-field" class="mini-btn">save field</button>
+        <span class="save-col">
+          <button id="export-saved" class="micro-btn">copy list</button>
+          <button id="import-saved" class="micro-btn">paste list</button>
+        </span>
+      </div>
+    </div>
+    <div id="saved-list"></div>
+  </details>
+
+
+  <details class="group" open>
+    <summary>Targets
+      <span class="sum-btns"><button id="reset-sel" class="micro-btn" title="clear all three selections">reset</button></span>
+    </summary>
     <div class="subhead" style="color:${streamHead}">Streams</div>
     <div class="row checks">
       <label><input type="checkbox" id="via-chk" ${state.via ? 'checked' : ''}> Via only</label>
@@ -325,7 +331,7 @@ function buildSidebar() {
     <div class="subdiv"></div>
     <div class="subhead" style="color:${UI.dwarf}">Dwarf galaxies</div>
     <div class="row checks">
-      <label><input type="checkbox" id="via-dg-chk" ${state.viaDwarfs ? 'checked' : ''}> &lt;300 kpc only</label>
+      <label><input type="checkbox" id="via-dg-chk" ${state.viaDwarfs ? 'checked' : ''}> &le; 300 kpc</label>
       <label><input type="checkbox" id="hl-dwarf" ${state.hlDwarf ? 'checked' : ''}> highlight selected</label>
     </div>
     <div class="row combo">
@@ -408,7 +414,7 @@ function wireSidebar() {
 
   // changing a dropdown after a GO drops that GO's lock (the button unhighlights)
   const dropLock = kind => {
-    if (state.lock?.kind === kind) { state.lock = null; emit('lock'); }
+    if (state.lock?.kind === kind) replaceLock(null);
   };
   $('stream-sel').addEventListener('change', e => {
     syncNoneSel(e.target); dropLock('stream'); set({ streamSel: e.target.value || null });
@@ -487,6 +493,17 @@ function wireSidebar() {
   // the history arrows live inside the <summary>: don't let clicks toggle the section
   $('hist-back').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(-1); });
   $('hist-fwd').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(1); });
+  // Targets summary "reset": all three selections back to none selected
+  $('reset-sel').addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation();
+    for (const id of ['stream-sel', 'dg-sel', 'gc-sel']) {
+      const el = $(id);
+      el.value = '';
+      syncNoneSel(el);
+    }
+    if (['stream', 'gc', 'dwarf'].includes(state.lock?.kind)) replaceLock(null);
+    set({ streamSel: null, gcSel: null, dwarfSel: null });
+  });
   $('save-field').addEventListener('click', () => { saveCurrentField(); renderSaved(); });
   $('export-saved').addEventListener('click', async e => {
     const txt = JSON.stringify(loadSaved(), null, 1);

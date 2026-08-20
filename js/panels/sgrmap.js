@@ -12,6 +12,7 @@ import { placeTooltip } from '../scene3d.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};
+let hiStretchSgr = {};   // himap -> {v0, v1} used for the background stretch
 let map = { x0: 26, y0: 8, w: 0, h: 0 };   // plot rect
 let dragging = false;
 let hoverObj = null;
@@ -81,6 +82,7 @@ function buildBg(w, h) {
     for (let i = 0; i < grid.length; i += 3) if (Number.isFinite(grid[i])) fin.push(grid[i]);
     fin.sort((a, b) => a - b);
     const v0 = C.quantileSorted(fin, 0.25), v1 = C.quantileSorted(fin, 0.99);
+    if (!hiStretchSgr[state.himap]) hiStretchSgr[state.himap] = { v0, v1 };
     const cw = map.w / nb, ch = map.h / nl;
     ctx.globalAlpha = alphaMul * 0.75;
     for (let ib = 0; ib < nb; ib++) {
@@ -182,9 +184,10 @@ function draw() {
   let h = Math.round(w * ASPECT);
   if (h > availH) { h = availH; w = Math.round(h / ASPECT); }
   const ctx = fitCanvas(cv, w, h);
-  map.w = w - map.x0 - 6;
+  map.w = w - map.x0 - 40;      // right margin reserved for the vertical HI colorbar
   map.h = h - map.y0 - 20;
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
+  drawHiBarV(ctx, w, h);
 
   if (state.cloudsOn && D.CLOUDS) {
     const cl = D.CLOUDS;
@@ -216,6 +219,27 @@ function draw() {
   ctx.ellipse(FX, FY, Math.max(rx, 3), Math.max(ry, 3), 0, 0, 2 * Math.PI);
   ctx.stroke();
   cv.style.cursor = 'crosshair';
+}
+
+// vertical HI colorbar along the right edge of the strip
+function drawHiBarV(ctx, w, h) {
+  const st = hiStretchSgr[state.himap];
+  if (!st) return;
+  const useHvc = state.himap === 'hvc';
+  const scale = useHvc ? scales.hiRed : scales.hiBlue;
+  const bw = 9, bx = w - 24;
+  const by = map.y0 + 16, bh = map.h - 32;
+  for (let k = 0; k < bh; k++) {
+    ctx.fillStyle = scale.css(1 - k / (bh - 1));    // top = max
+    ctx.fillRect(bx, by + k, bw, 1.2);
+  }
+  label(ctx, st.v1.toFixed(1), bx + bw / 2, by - 5, { align: 'center', size: 8 });
+  label(ctx, st.v0.toFixed(1), bx + bw / 2, by + bh + 10, { align: 'center', size: 8 });
+  ctx.save();
+  ctx.translate(w - 4, by + bh / 2);
+  ctx.rotate(-Math.PI / 2);
+  label(ctx, useHvc ? 'HVC log N(HI)' : 'log N(HI)', 0, 0, { align: 'center', size: 8 });
+  ctx.restore();
 }
 
 // ---- whole-structure hover (enlarged view only) --------------------------------------

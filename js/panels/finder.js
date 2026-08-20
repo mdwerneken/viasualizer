@@ -4,7 +4,7 @@
 // drag-to-pan, tiled 1-degree pointings over ALL sources when FOV > 1, and rung
 // pop-out highlighting driven by the ladder / stats panels.
 import { D } from '../data.js';
-import { state, setField, slideField, emit, on } from '../state.js';
+import { state, setField, slideField, replaceLock, emit, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import { skey } from '../rungs.js';
 import * as C from '../compute.js';
@@ -504,8 +504,7 @@ function wirePointer() {
     // empty space recenters — both with the damped slide
     const h = findHit(e);
     if (h?.lockInfo) {
-      state.lock = h.lockInfo;
-      emit('lock');
+      replaceLock(h.lockInfo);
       slideField(h.lam, h.bet, { keepLock: true });
       return;
     }
