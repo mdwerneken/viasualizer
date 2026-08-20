@@ -30,7 +30,7 @@ function catFromJson(raw) {
 }
 
 // bump when files in data/ change, so deployed pages never read stale caches
-export const DATA_VERSION = 'v2.2';
+export const DATA_VERSION = 'v2.4';
 const q = `?${DATA_VERSION}`;
 
 export async function loadCore(dataDir, onProgress = () => {}) {
