@@ -77,6 +77,16 @@ export const HEMI_COL = { 0: '#4e9cd6', 1: '#57c069', 2: '#e06060' };  // S / Bo
 export const HEMI_LBL = { 0: 'S', 1: 'Both', 2: 'N' };
 
 export function streamColor(code) { return PALETTE[code % PALETTE.length]; }
+export function streamColorByName(name) {
+  const i = D.STREAM_NAMES.indexOf(name);
+  return i >= 0 ? streamColor(i) : '#c05252';
+}
+// per-galaxy dwarf color (offset + stride so nearby indices don't mirror the streams)
+export function dwarfColor(idx) { return PALETTE[(idx * 3 + 11) % PALETTE.length]; }
+export function dwarfColorByName(name) {
+  const i = D.DWF ? D.DWF.name.indexOf(name) : -1;
+  return i >= 0 ? dwarfColor(i) : UI.dwarf;
+}
 
 export function hexToRgb01(hex) {
   const [r, g, b] = parseRgb(hex);

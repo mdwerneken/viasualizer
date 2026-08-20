@@ -1,6 +1,6 @@
 // VIAsual v2 — app shell: boot, sidebar, tabs, saved fields + history, oracle verify.
 const DATA_DIR = 'data';
-export const CODE_VERSION = 'v2.3';
+export const CODE_VERSION = 'v2.4';
 
 import { loadCore, loadQuaia, loadHalo, D } from './data.js';
 import {
@@ -73,12 +73,19 @@ function buildTrack(sel, nbin = 40) {
   return track;
 }
 function trackPos(phi) {
-  let best = null, bd = Infinity;
-  for (const [p, v] of TRACK.list) {
-    const d = Math.abs(p - phi);
-    if (d < bd) { bd = d; best = v; }
-  }
-  return C.lonlatOf(best);
+  // interpolate between track bins (the old nearest-bin snap made scanning choppy)
+  const L = TRACK.list;
+  if (L.length === 1) return C.lonlatOf(L[0][1]);
+  let j = 1;
+  while (j < L.length - 1 && L[j][0] < phi) j++;
+  const [p0, v0] = L[j - 1], [p1, v1] = L[j];
+  const t = Math.max(0, Math.min(1, (phi - p0) / ((p1 - p0) || 1)));
+  const v = [
+    v0[0] + (v1[0] - v0[0]) * t,
+    v0[1] + (v1[1] - v0[1]) * t,
+    v0[2] + (v1[2] - v0[2]) * t,
+  ];
+  return C.lonlatOf(v);
 }
 
 // ---- go-to actions (set the lock, slide the field) -----------------------------------
@@ -251,24 +258,29 @@ function buildSidebar() {
   </div>
 
   <details class="group" open>
-    <summary>Field</summary>
+    <summary>Fields
+      <span class="sum-btns">
+        <button id="hist-back" class="micro-btn" title="back to the previous field">◀</button>
+        <button id="hist-fwd" class="micro-btn" title="forward again">▶</button>
+      </span>
+    </summary>
     <div class="row"><label class="sec-lab" id="cand-lab">${cand.lab}</label>
       <select id="cand-sel">${NONE_OPT}${cand.html}</select>
     </div>
-    <div class="row"><label class="sec-lab saved-lab">SAVED FIELDS
-      <button id="export-saved" class="micro-btn">copy list</button>
-      <button id="import-saved" class="micro-btn">paste list</button></label>
+    <div class="row"><label class="sec-lab">SAVED FIELDS</label>
       <div class="save-row">
-        <button id="save-field" class="mini-btn">☆ save field</button>
-        <button id="hist-back" class="mini-btn" title="back to the previous field">◀</button>
-        <button id="hist-fwd" class="mini-btn" title="forward again">▶</button>
+        <button id="save-field" class="mini-btn">save field</button>
+        <span class="save-col">
+          <button id="export-saved" class="micro-btn">copy list</button>
+          <button id="import-saved" class="micro-btn">paste list</button>
+        </span>
       </div>
     </div>
     <div id="saved-list"></div>
   </details>
 
   <details class="group">
-    <summary>3D view</summary>
+    <summary>3D display</summary>
     <div class="row checks catalogs"><label class="tiny sec-lab">display objects</label>
       <label><input type="checkbox" id="streams-chk" ${state.streamsOn ? 'checked' : ''}> <i class="sw str"></i>streams</label>
       <label><input type="checkbox" id="dg-chk" ${state.dgOn ? 'checked' : ''}> <i class="sw dg"></i>dwarfs</label>
@@ -282,9 +294,12 @@ function buildSidebar() {
       <button class="cone-btn" data-cone="${c.key}" style="--cone:${c.color}">${c.name} <span class="tiny">(${c.fov}°)</span></button>
       <button class="mini-btn cone-go" data-cone="${c.key}">GO</button>
     </div>`).join('')}
-    <div class="row checks"><label class="tiny sec-lab">display options</label>
-      <label><input type="checkbox" id="disk-chk" ${state.diskOn ? 'checked' : ''}> disk <span class="tiny">(R=10 kpc · z=1 kpc)</span></label>
-      <label><input type="checkbox" id="hisph-chk" ${state.hiSphere ? 'checked' : ''}> HI shell</label>
+    <div class="row"><label class="tiny sec-lab">display options</label></div>
+    <div class="row combo">
+      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">disk <span class="tiny">(R=10 · z=1 kpc)</span></button>
+      <button id="hisph-btn" class="cone-btn ${state.hiSphere ? 'on' : ''}" style="--cone:#5b8fc9">HI shell</button>
+    </div>
+    <div class="row checks">
       <label><input type="checkbox" id="box-chk" ${state.boxOn ? 'checked' : ''}> ${D.BOX_R} kpc box</label>
       <label><input type="checkbox" id="hemi-cones" ${state.hemiCones ? 'checked' : ''}> site visibility</label>
     </div>
@@ -294,7 +309,7 @@ function buildSidebar() {
   </details>
 
   <details class="group" open>
-    <summary>Backlights</summary>
+    <summary>Targets</summary>
     <div class="subhead" style="color:${streamHead}">Streams</div>
     <div class="row checks">
       <label><input type="checkbox" id="via-chk" ${state.via ? 'checked' : ''}> Via only</label>
@@ -391,7 +406,13 @@ function wireSidebar() {
     slideField(c.lam, c.bet);
   });
 
-  $('stream-sel').addEventListener('change', e => { syncNoneSel(e.target); set({ streamSel: e.target.value || null }); });
+  // changing a dropdown after a GO drops that GO's lock (the button unhighlights)
+  const dropLock = kind => {
+    if (state.lock?.kind === kind) { state.lock = null; emit('lock'); }
+  };
+  $('stream-sel').addEventListener('change', e => {
+    syncNoneSel(e.target); dropLock('stream'); set({ streamSel: e.target.value || null });
+  });
   $('stream-go').addEventListener('click', () => { if (state.streamSel) gotoStream(state.streamSel); });
   $('scan-stream').addEventListener('input', e => {
     if (!TRACK.list) return;
@@ -406,21 +427,30 @@ function wireSidebar() {
     set({ ghi: +e.target.value });
   });
   $('hide-chk').addEventListener('change', e => set({ hide: e.target.checked }));
-  $('disk-chk').addEventListener('change', e => set({ diskOn: e.target.checked }));
+  $('disk-btn').addEventListener('click', e => {
+    const v = !state.diskOn;
+    e.currentTarget.classList.toggle('on', v);
+    set({ diskOn: v });
+  });
+  $('hisph-btn').addEventListener('click', e => {
+    const v = !state.hiSphere;
+    e.currentTarget.classList.toggle('on', v);
+    set({ hiSphere: v });
+  });
   $('box-chk').addEventListener('change', e => set({ boxOn: e.target.checked }));
-  $('hisph-chk').addEventListener('change', e => set({ hiSphere: e.target.checked }));
   $('hemi-cones').addEventListener('change', e => set({ hemiCones: e.target.checked }));
   $('theme-btn').addEventListener('click', e => {
     const light = state.theme !== 'light';
     set({ theme: light ? 'light' : 'dark' });
     e.target.classList.toggle('on', light);
   });
-  document.querySelectorAll('.cone-btn').forEach(b => {
+  document.querySelectorAll('.cone-btn[data-cone]').forEach(b => {
     b.classList.toggle('on', !!state[b.dataset.cone]);
     b.addEventListener('click', () => {
       const key = b.dataset.cone;
-      set({ [key]: !state[key] });
-      b.classList.toggle('on', !!state[key]);
+      const v = !state[key];
+      b.classList.toggle('on', v);
+      set({ [key]: v });
     });
   });
 
@@ -429,9 +459,13 @@ function wireSidebar() {
   $('via-dg-chk').addEventListener('change', e => set({ viaDwarfs: e.target.checked }));
   $('hl-dwarf').addEventListener('change', e => set({ hlDwarf: e.target.checked }));
   $('hl-gc').addEventListener('change', e => set({ hlGC: e.target.checked }));
-  $('gc-sel').addEventListener('change', e => { syncNoneSel(e.target); set({ gcSel: e.target.value === '' ? null : +e.target.value }); });
+  $('gc-sel').addEventListener('change', e => {
+    syncNoneSel(e.target); dropLock('gc'); set({ gcSel: e.target.value === '' ? null : +e.target.value });
+  });
   $('gc-go').addEventListener('click', () => { if (state.gcSel !== null) gotoGC(state.gcSel); });
-  $('dg-sel').addEventListener('change', e => { syncNoneSel(e.target); set({ dwarfSel: e.target.value === '' ? null : +e.target.value }); });
+  $('dg-sel').addEventListener('change', e => {
+    syncNoneSel(e.target); dropLock('dwarf'); set({ dwarfSel: e.target.value === '' ? null : +e.target.value });
+  });
   $('dg-go').addEventListener('click', () => { if (state.dwarfSel !== null) gotoDwarf(state.dwarfSel); });
   document.querySelectorAll('.cone-go').forEach(b => {
     b.addEventListener('click', () => {
@@ -450,8 +484,9 @@ function wireSidebar() {
   $('clouds-chk').addEventListener('change', e => set({ cloudsOn: e.target.checked }));
   $('cloud-filter').addEventListener('change', e => set({ cloudFilter: e.target.value }));
 
-  $('hist-back').addEventListener('click', () => histGo(-1));
-  $('hist-fwd').addEventListener('click', () => histGo(1));
+  // the history arrows live inside the <summary>: don't let clicks toggle the section
+  $('hist-back').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(-1); });
+  $('hist-fwd').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(1); });
   $('save-field').addEventListener('click', () => { saveCurrentField(); renderSaved(); });
   $('export-saved').addEventListener('click', async e => {
     const txt = JSON.stringify(loadSaved(), null, 1);

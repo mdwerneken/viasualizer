@@ -13,28 +13,26 @@ export function makeExpandable(wrap, { onToggle } = {}) {
   close.style.display = 'none';
   wrap.append(btn, close);
   let expanded = false;
+  // FLIP in both directions: grow from the panel's place, shrink back into it
+  function flipFrom(r0) {
+    const r1 = wrap.getBoundingClientRect();
+    const sx = Math.max(0.04, r0.width / Math.max(1, r1.width));
+    const sy = Math.max(0.04, r0.height / Math.max(1, r1.height));
+    wrap.style.transformOrigin = 'top left';
+    wrap.style.transition = 'none';
+    wrap.style.transform =
+      `translate(${r0.left - r1.left}px, ${r0.top - r1.top}px) scale(${sx}, ${sy})`;
+    wrap.getBoundingClientRect();               // force reflow before animating
+    wrap.style.transition = 'transform .28s ease';
+    wrap.style.transform = 'none';
+    setTimeout(() => { wrap.style.transition = ''; wrap.style.transform = ''; }, 300);
+  }
   function setExpanded(v) {
     if (v === expanded) return;
     expanded = v;
-    if (v) {
-      const r0 = wrap.getBoundingClientRect();
-      wrap.classList.add('expanded');
-      const r1 = wrap.getBoundingClientRect();
-      const sx = Math.max(0.04, r0.width / Math.max(1, r1.width));
-      const sy = Math.max(0.04, r0.height / Math.max(1, r1.height));
-      wrap.style.transformOrigin = 'top left';
-      wrap.style.transition = 'none';
-      wrap.style.transform =
-        `translate(${r0.left - r1.left}px, ${r0.top - r1.top}px) scale(${sx}, ${sy})`;
-      wrap.getBoundingClientRect();               // force reflow before animating
-      wrap.style.transition = 'transform .28s ease';
-      wrap.style.transform = 'none';
-      setTimeout(() => { wrap.style.transition = ''; wrap.style.transform = ''; }, 300);
-    } else {
-      wrap.classList.remove('expanded');
-      wrap.style.transition = '';
-      wrap.style.transform = '';
-    }
+    const r0 = wrap.getBoundingClientRect();    // where we're animating FROM
+    wrap.classList.toggle('expanded', v);
+    flipFrom(r0);
     btn.style.display = v ? 'none' : '';
     close.style.display = v ? '' : 'none';
     onToggle?.(v);

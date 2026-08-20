@@ -1,9 +1,10 @@
 // Distance-ladder panel: the field's rung count (headline metric) and the ladder
 // graphic on a log-distance axis. Hovering a rung icon pops those sources out on
 // the finder chart (via the 'hilite' topic). The fiber budget lives in the stats box.
+import { D } from '../data.js';
 import { state, on, emit } from '../state.js';
 import { F } from '../fieldmodel.js';
-import { UI } from '../colors.js';
+import { UI, streamColorByName, dwarfColorByName } from '../colors.js';
 import { fitCanvas, hexagram, diamond, dot, label } from './canvas2d.js';
 
 let wrap, headEl, cvs;
@@ -63,8 +64,10 @@ function draw() {
   }
   const x0 = 8, x1 = w - 8;
   const dMin = 1.5, dMax = 130;                  // kpc log axis; ∞ parked at right
-  const lx = d => x0 + (Math.log10(Math.max(d, dMin)) - Math.log10(dMin)) /
-    (Math.log10(dMax) - Math.log10(dMin)) * (x1 - x0 - 46);
+  // beyond-axis objects (e.g. M31-distance dwarfs) clamp to the axis end
+  const lx = d => Math.min(x1 - 50,
+    x0 + (Math.log10(Math.max(d, dMin)) - Math.log10(dMin)) /
+    (Math.log10(dMax) - Math.log10(dMin)) * (x1 - x0 - 46));
 
   // measure + lay out each group's labels first (wrapping onto extra lines when a
   // group is crowded), so the canvas height fits before anything is drawn
@@ -116,10 +119,14 @@ function draw() {
     ctx.stroke();
     for (const it of lay.items) {
       const { r, X } = it;
+      // icon colors match the per-object colors in the field view (merged systems
+      // like "Sgr system" have dwarf kind but a stream label — use the stream color)
       if (r.kind === 'GC') hexagram(ctx, X, y, 6, KC.GC, '#000a');
-      else if (r.kind === 'dwarf') diamond(ctx, X, y, 5.5, KC.dwarf, '#000a');
-      else if (r.kind === 'halo') dot(ctx, X, y, 4.5, KC.halo, 0.95);
-      else dot(ctx, X, y, 4.5, KC.stream, 0.95);
+      else if (r.kind === 'dwarf') {
+        const c = D.DWF.name.includes(r.label) ? dwarfColorByName(r.label) : streamColorByName(r.label);
+        diamond(ctx, X, y, 5.5, c, '#000a');
+      } else if (r.kind === 'halo') dot(ctx, X, y, 4.5, KC.halo, 0.95);
+      else dot(ctx, X, y, 4.5, streamColorByName(r.label), 0.95);
       iconHits.push({ x: X, y, r: 8, rung: r });
     }
     for (const ln of lay.lines) {

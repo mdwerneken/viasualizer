@@ -25,7 +25,7 @@ export const state = {
   hemiCones: false,            // MMT/Magellan visibility cones
   theme: 'dark',               // 3D view background: dark | light
   boxOn: false,                // 100 kpc reference box
-  diskOn: true,                // galactic disk
+  diskOn: false,               // galactic disk (button-toggled; off by default since 8-20-26)
   streamsOn: true, qsoOn: true, gcOn: true, dgOn: true, memOn: true, haloOn: false,
   cloudsOn: false, cloudFilter: 'all',   // all | compact | vhvc
   pairKind: 'dd',              // dd | dv | nn | dnn

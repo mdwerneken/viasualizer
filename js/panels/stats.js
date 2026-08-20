@@ -13,11 +13,13 @@ export function initStats(container, bottomBar) {
   barEl = bottomBar;
   on('fieldmodel', render);
   statsEl.addEventListener('pointerover', e => {
+    const s = e.target.closest?.('[data-hl-stream]')?.dataset?.hlStream;
+    if (s !== undefined) { emit('hilite', { type: 'stream', name: s }); return; }
     const k = e.target.closest?.('[data-hl]')?.dataset?.hl;
     if (k !== undefined) emit('hilite', { type: 'kind', kind: isNaN(+k) ? k : +k });
   });
   statsEl.addEventListener('pointerout', e => {
-    if (e.target.closest?.('[data-hl]')) emit('hilite', null);
+    if (e.target.closest?.('[data-hl], [data-hl-stream]')) emit('hilite', null);
   });
 }
 
@@ -30,7 +32,8 @@ function render() {
   L.push(`<div class="targets-head">${red(F.fibers.targets)} targets: ` +
     `<span class="tiny hint">(hover number to highlight)</span></div>`);
   if (F.idx.length) {
-    const parts = F.comp.slice(0, 6).map(([nm, c]) => `${nm} (${c}★)`);
+    const parts = F.comp.slice(0, 6).map(([nm, c]) =>
+      `${nm} (<span class="tcount" data-hl-stream="${nm}">${c}★</span>)`);
     L.push(`<div><b>${red(F.idx.length, 0)} stream star${F.idx.length > 1 ? 's' : ''}</b> — ` +
       `${parts.join(', ')}${F.comp.length > 6 ? ', …' : ''}</div>`);
   } else if (state.streamsOn) L.push(`<div><b>0 stream stars</b></div>`);

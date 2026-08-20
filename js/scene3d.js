@@ -315,8 +315,9 @@ function buildHemiCones() {
   ];
   for (const d of defs) {
     const half = (90 - Math.abs(d.dec)) * Math.PI / 180;
-    const len = 40;
-    const rBase = len * Math.tan(half);
+    // cap the cone SURFACE (slant) at 40 kpc from the Sun, not the axis length
+    const len = 40 * Math.cos(half);
+    const rBase = 40 * Math.sin(half);
     const geo = new THREE.ConeGeometry(rBase, len, 64, 1, true);
     geo.translate(0, -len / 2, 0);
     geo.rotateX(Math.PI);
@@ -582,7 +583,7 @@ function drawColorbar() {
     dens: { scale: scales.dens, lo: 0, hi: D.DENS_CMAX, lab: 'density' },
   }[state.mode];
   if (!conf) { cbarEl.style.display = 'none'; return; }
-  const bx = 8, by = 22, bw = 12, bh = H - by - 10;
+  const bx = 8, by = 26, bw = 12, bh = H - by - 10;   // extra breathing room under the title
   for (let k = 0; k < bh; k++) {
     ctx.fillStyle = conf.scale.css(1 - k / (bh - 1));    // top = max
     ctx.fillRect(bx, by + k, bw, 1.2);
@@ -591,7 +592,9 @@ function drawColorbar() {
   ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
   ctx.font = '9.5px ui-monospace, Menlo, monospace';
   ctx.fillStyle = txt;
-  ctx.fillText(conf.lab, 4, 12);
+  ctx.textAlign = 'center';
+  ctx.fillText(conf.lab, W / 2, 12);                   // centered over the bar block
+  ctx.textAlign = 'left';
   for (let t = 0; t < 5; t++) {
     const v = conf.hi - (conf.hi - conf.lo) * t / 4;
     const y = by + bh * t / 4;
@@ -695,10 +698,10 @@ export function updatePointer() {
   const dir = fieldDir3();
   const len = pointerLen();
   const up = new THREE.Vector3(0, 1, 0);
-  // arrowhead scales with arrow length (halved 8-20-26: skinnier shaft, smaller head)
-  const tipLen = Math.max(0.35, len * 0.0425);
+  // arrowhead scales with arrow length (tuned 8-20-26: shaft +20%, head +25% vs round 2)
+  const tipLen = Math.max(0.44, len * 0.053);
   const tipRad = tipLen * 0.34;
-  const shaftRad = Math.max(0.05, len * 0.0065);
+  const shaftRad = Math.max(0.06, len * 0.0078);
   const shaftLen = len - tipLen;
   pointer.shaft.position.copy(SUN);
   pointer.shaft.scale.set(shaftRad, shaftLen, shaftRad);
@@ -721,7 +724,25 @@ export function updatePointer() {
   pointer.hit.scale.setScalar(Math.max(rad * 1.6, len * 0.14, 2.0));
   pointer.hit.updateMatrixWorld();   // picking must not wait for the next render
   pointer.userData = { len };
+  syncConeLengths(ringDist);
   needsRender = true;
+}
+
+// a locked survey cone extends to the arrow's field circle; others keep their default
+function syncConeLengths(ringDist) {
+  if (!conesGroup) return;
+  for (const m of conesGroup.children) {
+    const cone = m.userData.cone;
+    const want = (state.lock?.kind === 'cone' && state.lock.id === cone.key) ? ringDist : cone.len;
+    if (Math.abs((m.userData.curLen ?? cone.len) - want) < 1e-6) continue;
+    m.userData.curLen = want;
+    const a = cone.r * Math.PI / 180;
+    const geo = new THREE.ConeGeometry(want * Math.tan(a), want, 40, 1, true);
+    geo.translate(0, -want / 2, 0);
+    geo.rotateX(Math.PI);
+    m.geometry.dispose();
+    m.geometry = geo;
+  }
 }
 
 // ---- picking: hover tooltips, click-to-pin, dblclick-to-recenter, drag-the-pointer ----
@@ -796,7 +817,8 @@ function wirePicking(container) {
   });
   el.addEventListener('dblclick', (e) => {
     clearTimeout(clickTimer);
-    const p = pickAll(e);
+    // halo RRL are too diffuse to be dblclick targets — they'd mask everything else
+    const p = pickAll(e, { noHalo: true });
     if (p) { dblRecenter(p); return; }
     // no object: maybe a survey cone
     raycaster.setFromCamera(ndc(e), camera);
@@ -807,14 +829,14 @@ function wirePicking(container) {
   });
   el.addEventListener('pointerleave', () => setHover(null));
 
-  function pickAll(e) {
+  function pickAll(e, { noHalo = false } = {}) {
     raycaster.setFromCamera(ndc(e), camera);
     const targets = [];
     if (state.streamsOn) targets.push(starPts);
     if (state.gcOn) targets.push(gcPts);
     if (state.dgOn) targets.push(dwfPts);
     if (state.dgOn && state.memOn) targets.push(memPts);
-    if (state.haloOn && haloPts) targets.push(haloPts);
+    if (!noHalo && state.haloOn && haloPts) targets.push(haloPts);
     const hits = raycaster.intersectObjects(targets, false);
     for (const h of hits) {
       const kind = h.object.userData.kind;

@@ -12,7 +12,7 @@ import { D } from './data.js';
 import { median } from './compute.js';
 
 export const NMIN_SRC = 2;
-export const DTOL = 0.10;                 // was 0.20; tightened 8-19-26
+export const DTOL = 0.20;                 // 20% (restored 8-20-26 after a brief 10% trial)
 export const HALO_PAIR_DKPC = 1.0;        // halo pair rule: <= 1 kpc apart in distance
 export const HALO_PAIR_DEG = 1.0;         //                 <= 1 deg apart on-sky
 const GC_NOMINAL = 10;
@@ -116,8 +116,6 @@ export function ladder({ idx, mm, hh, gc, dw, nQso, gLim }) {
 
   // gate: streams need NMIN_SRC sources; GCs/dwarfs always pass
   const kept = [...rung.values()].filter(r => r.n >= NMIN_SRC || r.kind === 'GC' || r.kind === 'dwarf');
-  // halo RR Lyrae rungs via the pair rule (hh empty when the catalog is hidden)
-  kept.push(...haloRungs(hh ?? []));
   // collapse structures at the same distance (DTOL fractional tolerance, sorted)
   kept.sort((a, b) => a.dist - b.dist);
   const groups = [];
@@ -127,9 +125,28 @@ export function ladder({ idx, mm, hh, gc, dw, nQso, gLim }) {
         <= DTOL * Math.max(r.dist, last[last.length - 1].dist)) last.push(r);
     else groups.push([r]);
   }
+  // halo pair-rule clusters come LAST (Matt 8-20-26): they only add rungs when they
+  // sit outside the DTOL margin of every structure rung AND every accepted halo rung —
+  // no stacking on existing lines; each accepted cluster gets its own row
+  const acceptedHalo = [];
+  const clash = d => {
+    for (const grp of groups) for (const r of grp) {
+      if (Math.abs(d - r.dist) <= DTOL * Math.max(d, r.dist)) return true;
+    }
+    for (const r of acceptedHalo) {
+      if (Math.abs(d - r.dist) <= DTOL * Math.max(d, r.dist)) return true;
+    }
+    return false;
+  };
+  for (const hc of haloRungs(hh ?? []).sort((a, b) => b.n - a.n)) {
+    if (!clash(hc.dist)) acceptedHalo.push(hc);
+  }
+  for (const hc of acceptedHalo) groups.push([hc]);
+  groups.sort((a, b) => a[0].dist - b[0].dist);
   const qsoRung = nQso > 0;
   const nRungs = groups.length + (qsoRung ? 1 : 0);
-  let tie = kept.reduce((s, r) => s + Math.log10(1 + r.n), 0);
+  const all = kept.concat(acceptedHalo);
+  let tie = all.reduce((s, r) => s + Math.log10(1 + r.n), 0);
   if (nQso) tie += Math.log10(1 + nQso);
-  return { nRungs, groups, qsoRung, nQso, tie, structures: kept };
+  return { nRungs, groups, qsoRung, nQso, tie, structures: all };
 }

@@ -262,8 +262,8 @@ function draw() {
   // field circle (no center pip — the outline is the field)
   drawSkyCircle(ctx, F.l0, F.b0, Math.max(state.fov / 2, 1.2), UI.accent, 1.8);
   if (!expander.isExpanded()) {
-    label(ctx, 'click or drag to move field', 8, 15, { size: 9.5 });
-    label(ctx, 'or expand to explore', 8, 27, { size: 9.5 });
+    label(ctx, 'click or drag to move field', 6, 12, { size: 8 });
+    label(ctx, 'or expand to explore', 6, 22, { size: 8 });
   }
   cv.style.cursor = 'crosshair';
 }

@@ -8,7 +8,7 @@ import { state, setField, slideField, emit, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import { skey } from '../rungs.js';
 import * as C from '../compute.js';
-import { UI, scales } from '../colors.js';
+import { UI, scales, streamColor, dwarfColorByName } from '../colors.js';
 import { placeTooltip } from '../scene3d.js';
 import { makeExpandable } from './expand.js';
 import { fitCanvas, starGlyph, hexagram, diamond, dot, circleOutline, label } from './canvas2d.js';
@@ -41,19 +41,10 @@ function fromPx(x, y) {
   return [(x - px.cx) / px.scale, -(y - px.cy) / px.scale];
 }
 
-function colorFor(kindArrs, i) {
-  // color stars by active mode (dist / mag), fall back to accent
-  if (state.mode === 'mag') {
-    const t = (kindArrs.G[i] - state.glo) / Math.max(1e-9, state.ghi - state.glo);
-    return scales.mag.css(Math.max(0, Math.min(1, t)));
-  }
-  const t = (kindArrs.d[i] - D.DIST_MIN) / (D.DIST_MAX - D.DIST_MIN);
-  return scales.dist.css(Math.max(0, Math.min(1, t)));
-}
-
 // does a source belong to the active pop-out highlight?
-function inHilite(kind, structKey, dist) {
+function inHilite(kind, structKey, dist, rawName = null) {
   if (!hilite) return true;
+  if (hilite.type === 'stream') return kind === 0 && rawName === hilite.name;
   if (hilite.type === 'kind') {
     if (hilite.kind === 'dwarf') return kind === 'dwarf' || kind === 2;  // dwarfs + members
     return kind === hilite.kind;
@@ -66,8 +57,10 @@ function inHilite(kind, structKey, dist) {
 const dimA = 0.12;   // alpha for non-highlighted sources while popping a rung out
 
 function draw() {
-  const w = wrap.clientWidth;
-  if (!w) return;
+  // expanded: the wrap's clientWidth includes its padding — shrink the canvas so the
+  // right-edge texts stay on screen
+  const w = wrap.clientWidth - (expander?.isExpanded() ? 34 : 0);
+  if (w <= 0) return;
   const h = Math.min(w, Math.max(240, window.innerHeight - 40));  // circle inscribed
   const ctx = fitCanvas(cv, w, h);
   ctx.clearRect(0, 0, w, h);
@@ -111,14 +104,17 @@ function draw() {
   // field rim
   circleOutline(ctx, px.cx, px.cy, px.R, UI.accent, 2.2);
   // scale reference: 15 arcmin bar in the bottom-left corner, clear of the circle
+  const isBig = expander?.isExpanded();
+  const sx0 = isBig ? 22 : 8;
   const bar = 15 * px.scale;
   ctx.fillStyle = UI.textDim;
-  ctx.fillRect(8, h - 8, bar, 1.5);
-  label(ctx, "15′", 8 + bar / 2, h - 12, { align: 'center', size: 10.5 });
+  ctx.fillRect(sx0, h - 8, bar, 1.5);
+  label(ctx, "15′", sx0 + bar / 2, h - 12, { align: 'center', size: isBig ? 12 : 10.5 });
 
   // selected object / survey-field name in the bottom-right corner
   if (state.lock?.name) {
-    label(ctx, state.lock.name, w - 8, h - 8, { align: 'right', size: 11, color: UI.accent, weight: '600' });
+    label(ctx, state.lock.name, w - 8, h - 8,
+      { align: 'right', size: isBig ? 15 : 12.5, color: UI.text, weight: 'italic 700' });
   }
 
   // HI colorbar (top-left) + HI stats (top-right) — the star colorbar lives on the 3D view now
@@ -129,7 +125,7 @@ function drawHiLegend(ctx, w) {
   const useHvc = state.himap === 'hvc';
   const scale = useHvc ? scales.hiRed : scales.hiBlue;
   const big = expander?.isExpanded();            // larger colorbar in the enlarged view
-  const lw = big ? 130 : 56, lh = big ? 13 : 7, lx = 6, ly = big ? 20 : 14;
+  const lw = big ? 130 : 56, lh = big ? 13 : 7, lx = big ? 22 : 6, ly = big ? 20 : 14;
   const fs = big ? 11 : 8;
   for (let k = 0; k < lw; k++) {
     ctx.fillStyle = scale.css(k / (lw - 1));
@@ -144,8 +140,8 @@ function drawHiLegend(ctx, w) {
   // expanded view keeps clear of the fixed ✕ button
   const rx = big ? w - 46 : w - 6;
   if (F.hi) {
-    label(ctx, `mean ${Math.log10(F.hi.mean).toFixed(2)}`, rx, 11, { align: 'right', size: big ? 11 : 8.5 });
-    label(ctx, `peak ${Math.log10(F.hi.peak).toFixed(2)}`, rx, big ? 25 : 21, { align: 'right', size: big ? 11 : 8.5 });
+    label(ctx, `HI mean ${Math.log10(F.hi.mean).toFixed(2)}`, rx, 11, { align: 'right', size: big ? 11 : 8.5 });
+    label(ctx, `HI peak ${Math.log10(F.hi.peak).toFixed(2)}`, rx, big ? 25 : 21, { align: 'right', size: big ? 11 : 8.5 });
   } else if (state.himap === 'hvc') {
     label(ctx, 'no HVC signal', rx, 11, { align: 'right', size: big ? 11 : 8.5 });
   }
@@ -372,7 +368,7 @@ function drawSources(ctx, xi, eta) {
       const [X, Y] = toPx(mxA[k], myA[k]);
       const a = inHilite(2, skey(D.MEM.name[i]), D.MEM.dist[i]);
       ctx.globalAlpha = a ? 1 : dimA;
-      starGlyph(ctx, X, Y, 4.5, UI.member, '#00000066');
+      starGlyph(ctx, X, Y, 4.5, dwarfColorByName(D.MEM.name[i]), '#00000066');
       ctx.globalAlpha = 1;
       hitList.push({
         x: X, y: Y, r: 6, pri: 0,
@@ -383,16 +379,16 @@ function drawSources(ctx, xi, eta) {
     }
   }
 
-  // stream stars — glyphs when sparse, fast dots when dense
+  // stream stars — one identity color per stream (matches the rung icons);
+  // glyphs when sparse, fast dots when dense
   const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
-  const dArr = { d: Float64Array.from(F.idx, i => D.s_dist_use[i]), G: Float64Array.from(F.idx, i => D.s_G[i]) };
   const dense = F.idx.length > 1200;
   for (let k = 0; k < F.idx.length; k++) {
     const i = F.idx[k];
     const [X, Y] = toPx(xi[k], eta[k]);
     const isSel = selCode < 0 || D.s_name_code[i] === selCode;
-    const fill = isSel ? colorFor(dArr, k) : UI.greyStar;
-    const hl = inHilite(0, skey(D.streamName(i)), D.s_dist_use[i]);
+    const fill = isSel ? streamColor(D.s_name_code[i]) : UI.greyStar;
+    const hl = inHilite(0, skey(D.streamName(i)), D.s_dist_use[i], D.streamName(i));
     ctx.globalAlpha = hl ? 1 : dimA;
     if (dense) {
       ctx.fillStyle = fill;
@@ -418,15 +414,16 @@ function drawSources(ctx, xi, eta) {
       const i = ii[k];
       const [X, Y] = toPx(ox[k], oy[k]);
       const hl = inHilite(kk, skey(cat.name[i]), cat.dist[i]);
+      const oc = kk === 'dwarf' ? dwarfColorByName(cat.name[i]) : col;
       ctx.globalAlpha = hl ? 1 : dimA;
       if (cat.rh_am && Number.isFinite(cat.rh_am[i]) && cat.rh_am[i] > 0.3) {
-        circleOutline(ctx, X, Y, cat.rh_am[i] * px.scale, col + '99', 1, [3, 3]);
+        circleOutline(ctx, X, Y, cat.rh_am[i] * px.scale, oc + '99', 1, [3, 3]);
       }
       let s = 9;
       if (cat.mass && Number.isFinite(cat.mass[i]) && cat.mass[i] > 0) {
         s = 8 + 6 * Math.max(0, Math.min(1, (Math.log10(Math.max(cat.mass[i], 1e2)) - 3) / 6));
       }
-      glyph(ctx, X, Y, s, col, '#000000aa');
+      glyph(ctx, X, Y, s, oc, '#000000aa');
       ctx.globalAlpha = 1;
       let html = `<b>${cat.name[i]}</b><br>${cat.dist[i].toFixed(1)} kpc`;
       if (cat.mass && Number.isFinite(cat.mass[i])) html += `<br>${cat.mass[i].toExponential(1)} M☉`;
