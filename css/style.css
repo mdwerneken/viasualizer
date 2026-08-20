@@ -66,6 +66,10 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 13p
   height: 13px; border-radius: 50%; background: var(--accent); margin-top: -4.5px;
   cursor: pointer; }
 input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: #2a3346; }
+#ghi { --fill: 100%; }
+#ghi::-webkit-slider-runnable-track { background: linear-gradient(to right,
+  var(--accent) var(--fill), #2a3346 var(--fill)); }
+#ghi::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
 input[type="range"]::-moz-range-thumb { width: 13px; height: 13px; border: none;
   border-radius: 50%; background: var(--accent); cursor: pointer; }
 input[type="range"]:disabled { opacity: .30; }
@@ -112,7 +116,7 @@ input[type="range"]:disabled::-moz-range-thumb { background: #4a5468; cursor: de
 /* FOV slider snap dots + labels (positioned to match the true slider stops) */
 .fov-wrap { position: relative; height: 36px; }
 .fov-wrap input { position: relative; z-index: 2; }
-.fov-dot { position: absolute; top: 3.5px; width: 13px; height: 13px; border-radius: 50%;
+.fov-dot { position: absolute; top: 5px; width: 13px; height: 13px; border-radius: 50%;
   background: #2a3346; transform: translateX(-50%); z-index: 1; pointer-events: none; }
 .fov-dot.active { background: var(--accent); }
 .fov-snap { position: absolute; top: 20px; transform: translateX(-50%);

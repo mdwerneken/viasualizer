@@ -165,7 +165,9 @@ function scheduleHash() {
   clearTimeout(hashTimer);
   hashTimer = setTimeout(() => {
     const p = new URLSearchParams();
-    p.set('lam', state.lam0.toFixed(3)); p.set('bet', state.bet0.toFixed(3));
+    // share links carry GALACTIC coordinates (Matt 8-20-26); lam/bet still parse
+    const [gl, gb] = galField();
+    p.set('l', gl.toFixed(3)); p.set('b', gb.toFixed(3));
     for (const k of HASH_KEYS) p.set(k, String(state[k]));
     const flags = FLAG_KEYS.filter(k => state[k] !== defaultsFlags[k]);
     if (flags.length) p.set('flip', flags.join(','));
@@ -182,7 +184,11 @@ export function initHash() {
   try {
     applyingHash = true;
     const p = new URLSearchParams(location.hash.slice(1));
-    if (p.has('lam')) state.lam0 = parseFloat(p.get('lam'));
+    if (p.has('l') && p.has('b')) {
+      const [lam, bet] = convPoint(D.M_GAL, D.M_SGR, parseFloat(p.get('l')), parseFloat(p.get('b')));
+      state.lam0 = lam; state.bet0 = bet;
+    }
+    if (p.has('lam')) state.lam0 = parseFloat(p.get('lam'));   // legacy links
     if (p.has('bet')) state.bet0 = parseFloat(p.get('bet'));
     if (p.has('fov')) state.fov = parseFloat(p.get('fov'));
     if (p.has('ghi')) state.ghi = parseFloat(p.get('ghi'));
@@ -194,7 +200,7 @@ export function initHash() {
     for (const k of (p.get('flip') ?? '').split(',').filter(Boolean)) {
       if (k in defaultsFlags) state[k] = !defaultsFlags[k];
     }
-    return p.has('lam');
+    return p.has('lam') || (p.has('l') && p.has('b'));
   } finally { applyingHash = false; }
 }
 

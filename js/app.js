@@ -1,6 +1,6 @@
 // VIAsual v2 — app shell: boot, sidebar, tabs, saved fields + history, oracle verify.
 const DATA_DIR = 'data';
-export const CODE_VERSION = 'v2.5';
+export const CODE_VERSION = 'v2.6';
 
 import { loadCore, loadQuaia, loadHalo, D } from './data.js';
 import {
@@ -162,9 +162,12 @@ function candOptions() {
   const best = candGrid();
   if (!best) return { html: '', lab: 'PROMISING FIELDS' };
   const list = D.CANDIDATES.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim);
-  const html = list.map(c =>
-    option(D.CANDIDATES.indexOf(c),
-      `${c.fov}° • ℓ ${c.l.toFixed(1)}, b ${c.b.toFixed(1)} • G ≤ ${best.glim}`)).join('');
+  const opt = c => option(D.CANDIDATES.indexOf(c),
+    `${c.fov}° • ℓ ${c.l.toFixed(1)}, b ${c.b.toFixed(1)} • G ≤ ${best.glim}`);
+  const top = list.filter(c => (c.sec ?? 'top') === 'top').map(opt).join('');
+  const via = list.filter(c => c.sec === 'via').map(opt).join('');
+  const html = `<optgroup label="top ${list.filter(c => (c.sec ?? 'top') === 'top').length}">${top}</optgroup>` +
+    (via ? `<optgroup label="best with a Via stream">${via}</optgroup>` : '');
   return { html, lab: `PROMISING FIELDS (${best.fov}°, G≤${best.glim})` };
 }
 
@@ -184,7 +187,7 @@ function fovSnapDots() {
 
 // ADS/arXiv sources for the Input Catalogs section
 const CAT_SOURCES = [
-  { src: 'BONACA & PW 24', url: 'https://arxiv.org/abs/2405.19410',
+  { src: 'BONACA & PW 24', url: 'https://ui.adsabs.harvard.edu/abs/2025NewAR.10001713B/abstract',
     num: () => `${D.N.toLocaleString()}`, lab: () => `stream stars · ${D.STREAM_NAMES.length} streams` },
   { src: 'BAUMGARDT+21', url: 'https://ui.adsabs.harvard.edu/abs/2021MNRAS.505.5957B/abstract',
     num: () => `${D.GCC.lam.length}`, lab: () => 'globular clusters' },
@@ -201,7 +204,7 @@ const CAT_SOURCES = [
     num: () => D.CLOUDS ? D.CLOUDS.name.length.toLocaleString() : '—', lab: () => 'HVC clouds (HIPASS + UCHVC)' },
   { src: 'HI4PI (BEN BEKHTI+16) · WESTMEIER 18', url: 'https://ui.adsabs.harvard.edu/abs/2016A%26A...594A.116H/abstract',
     url2: 'https://ui.adsabs.harvard.edu/abs/2018MNRAS.474..289W/abstract',
-    num: () => '0.25°', lab: () => 'N(HI) total + HVC maps' },
+    num: () => '', lab: () => 'all-sky HI maps' },
 ];
 function catalogsHtml() {
   return CAT_SOURCES.map(c => {
@@ -210,7 +213,7 @@ function catalogsHtml() {
       ? `<a href="${c.url}" target="_blank" rel="noopener">${names[0]}</a> · <a href="${c.url2}" target="_blank" rel="noopener">${names[1] ?? ''}</a>`
       : `<a href="${c.url}" target="_blank" rel="noopener">${c.src}</a>`;
     return `<div class="cat-entry"><div class="sec-lab cat-src">${links}</div>` +
-      `<div class="cat-num">${c.num()} <span class="tiny">${c.lab()}</span></div></div>`;
+      `<div class="cat-num">${c.num() ? c.num() + ' ' : ''}<span class="tiny">${c.lab()}</span></div></div>`;
   }).join('');
 }
 
@@ -277,7 +280,7 @@ function buildSidebar() {
     </div>`).join('')}
     <div class="row"><label class="tiny sec-lab">display options</label></div>
     <div class="row combo">
-      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">disk <span class="tiny">(R=10 · z=1 kpc)</span></button>
+      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">disk (10 kpc)</button>
       <button id="hisph-btn" class="cone-btn ${state.hiSphere ? 'on' : ''}" style="--cone:#5b8fc9">HI shell</button>
     </div>
     <div class="row checks">
@@ -428,10 +431,17 @@ function wireSidebar() {
   $('scan-stream').addEventListener('change', () => setField(state.lam0, state.bet0, { keepLock: true }));
 
   $('mode-sel').addEventListener('change', e => set({ mode: e.target.value }));
+  const paintGhi = () => {
+    const el = $('ghi');
+    const f = (state.ghi - D.GMIN) / (D.GMAX - D.GMIN) * 100;
+    el.style.setProperty('--fill', f.toFixed(1) + '%');
+  };
   $('ghi').addEventListener('input', e => {
     $('ghi-v').textContent = (+e.target.value).toFixed(1);
     set({ ghi: +e.target.value });
+    paintGhi();
   });
+  paintGhi();
   $('hide-chk').addEventListener('change', e => set({ hide: e.target.checked }));
   $('disk-btn').addEventListener('click', e => {
     const v = !state.diskOn;
@@ -676,8 +686,8 @@ async function boot() {
     prog.textContent = 'loading catalogs…';
     await loadCore(DATA_DIR, name => { prog.textContent = `loaded ${name}…`; });
     initScales();
-    state.lam0 = D.LAM0_DEFAULT;
-    state.bet0 = D.BET0_DEFAULT;
+    state.lam0 = -150.147;      // default field: a GD-1 x Sagittarius overlap (Matt 8-20-26)
+    state.bet0 = 10.389;
     state.glo = D.GMIN;
     state.ghi = Math.min(20.0, D.GMAX);
     initHash();                                   // may override from a shared link
