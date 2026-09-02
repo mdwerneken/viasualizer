@@ -77,7 +77,9 @@ transforms are precomputed rotation matrices stored in `data/meta.json`
 
 ## Regenerating the data
 
-From the companion research repo (`field-exploration`, private analysis notebook):
+From the parent research repo (`field-exploration`, private analysis notebook —
+this repo lives nested inside it at `field-exploration/viasual/`, gitignored by
+the parent, with its own git history and GitHub Pages remote):
 
 ```bash
 cd ~/research/field-exploration
@@ -85,7 +87,7 @@ conda run -n field-exploration-env python tools/run_cells.py 9 \
     "exec(open('tools/build_web_data.py').read())"
 ```
 
-writes fresh exports into `../viasual/data/` (including `halo.npz`); HVC cloud
+writes fresh exports into `viasual/data/` (including `halo.npz`); HVC cloud
 catalogs are rebuilt with `conda run -n field-exploration-env python
 tools/build_clouds.py`. Then bump `DATA_VERSION` in `js/data.js` (v2) and `v1/js/app.js` (v1) and the `?v=`
 constants in `index.html`, commit, push — GitHub Pages redeploys in ~1 min.
