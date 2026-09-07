@@ -48,6 +48,10 @@ export const state = {
   listOnlyVisible: false,      // filter: visible from at least one site
 };
 
+// the app's built-in defaults, captured before prefs/hash touch anything: share links encode
+// flags relative to THESE, so a link reproduces the same view on any machine
+const APP_DEFAULTS = JSON.parse(JSON.stringify(state));
+
 const subs = new Map();   // topic -> Set<fn>
 export function on(topics, fn) {
   for (const t of topics.split(' ')) {
@@ -221,7 +225,7 @@ function scheduleHash() {
 
 const defaultsFlags = {};
 export function initHash() {
-  for (const k of FLAG_KEYS) defaultsFlags[k] = state[k];
+  for (const k of FLAG_KEYS) defaultsFlags[k] = APP_DEFAULTS[k];
   if (!location.hash || location.hash.length < 2) return false;
   try {
     applyingHash = true;
@@ -240,6 +244,8 @@ export function initHash() {
     if (p.has('theme')) state.theme = p.get('theme');
     if (p.has('stream')) state.streamSel = p.get('stream');
     if (p.has('list')) state.listSrc = p.get('list').split(',').filter(Boolean);
+    // a shared link fully specifies the flags: start from the app defaults, then flip
+    if (p.has('flip') || (p.has('l') && p.has('b'))) for (const k of FLAG_KEYS) state[k] = defaultsFlags[k];
     for (const k of (p.get('flip') ?? '').split(',').filter(Boolean)) {
       if (k in defaultsFlags) state[k] = !defaultsFlags[k];
     }
