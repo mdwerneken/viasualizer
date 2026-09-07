@@ -1,22 +1,27 @@
-// VIAsual v2 — app shell: boot, sidebar, tabs, saved fields + history, oracle verify.
+// VIAsual v3 — app shell: boot, collapsible sidebar, tabs, field lists + player, saved
+// fields + history (with ⌘Z / ⌘⇧Z), theme, first-run tour, oracle verify.
 const DATA_DIR = 'data';
-export const CODE_VERSION = 'v2.6';
+export const CODE_VERSION = 'v3.0';
 
-import { loadCore, loadQuaia, loadHalo, D } from './data.js';
+import { loadCore, loadQuaia, loadHalo, loadKgiants, loadBhb, loadKepler, loadGeha, loadDust, loadDust3d, D } from './data.js';
 import {
-  state, set, setField, slideField, replaceLock, on, emit, initHash,
+  state, set, setField, slideField, replaceLock, on, emit, initHash, loadPrefs,
   loadSaved, storeSaved, saveCurrentField, galField, histState, histGo, histSeed,
 } from './state.js';
 import * as C from './compute.js';
-import { initScales, UI, scales } from './colors.js';
+import { initScales, applyTheme, bindHimap, UI, scales, SVY_COL, SVY_SHORT, BG_OPTIONS } from './colors.js';
 import { initFieldModel, F, recompute } from './fieldmodel.js';
 import { initScene, requestRender, restyle } from './scene3d.js';
 import { initFinder } from './panels/finder.js';
 import { initAllsky } from './panels/allsky.js';
 import { initSgrmap } from './panels/sgrmap.js';
+import { initLayers } from './panels/skylayers.js';
 import { initHists } from './panels/hists.js';
 import { initLadder } from './panels/ladder.js';
 import { initStats } from './panels/stats.js';
+import { initPlayer } from './panels/player.js';
+import { initLists, SOURCES, LIST, rebuild, gotoIndex, stepList, setPlaying, isPlaying, currentItem } from './lists.js';
+import { initTour, startTour, tourDone } from './tour.js';
 
 const $ = id => document.getElementById(id);
 const FOV_SNAPS = [1, 2, 3, 5];
@@ -36,7 +41,6 @@ function buildTrack(sel, nbin = 40) {
   for (const i of idx) { cv[0] += D.UG_SGR[3 * i]; cv[1] += D.UG_SGR[3 * i + 1]; cv[2] += D.UG_SGR[3 * i + 2]; }
   const cn = Math.hypot(...cv);
   const c = [cv[0] / cn, cv[1] / cn, cv[2] / cn];
-  // tangent-plane components and its 3x3 scatter matrix
   const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
   const tps = [];
   for (const i of idx) {
@@ -46,7 +50,6 @@ function buildTrack(sel, nbin = 40) {
     tps.push([t, u]);
     for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) S[a][b] += t[a] * t[b];
   }
-  // dominant eigenvector by power iteration
   let v = [1, 0.3, 0.2];
   for (let k = 0; k < 60; k++) {
     const nv = [
@@ -57,7 +60,8 @@ function buildTrack(sel, nbin = 40) {
     v = [nv[0] / nn, nv[1] / nn, nv[2] / nn];
   }
   const ss = tps.map(([t]) => (t[0] * v[0] + t[1] * v[1] + t[2] * v[2]) * 180 / Math.PI);
-  const sMin = Math.min(...ss), sMax = Math.max(...ss);
+  let sMin = Infinity, sMax = -Infinity;
+  for (const s of ss) { if (s < sMin) sMin = s; if (s > sMax) sMax = s; }
   const track = [];
   for (let b = 0; b < nbin; b++) {
     const a0 = sMin + (sMax - sMin) * b / nbin, a1 = sMin + (sMax - sMin) * (b + 1) / nbin;
@@ -73,18 +77,13 @@ function buildTrack(sel, nbin = 40) {
   return track;
 }
 function trackPos(phi) {
-  // interpolate between track bins (the old nearest-bin snap made scanning choppy)
   const L = TRACK.list;
   if (L.length === 1) return C.lonlatOf(L[0][1]);
   let j = 1;
   while (j < L.length - 1 && L[j][0] < phi) j++;
   const [p0, v0] = L[j - 1], [p1, v1] = L[j];
   const t = Math.max(0, Math.min(1, (phi - p0) / ((p1 - p0) || 1)));
-  const v = [
-    v0[0] + (v1[0] - v0[0]) * t,
-    v0[1] + (v1[1] - v0[1]) * t,
-    v0[2] + (v1[2] - v0[2]) * t,
-  ];
+  const v = [v0[0] + (v1[0] - v0[0]) * t, v0[1] + (v1[1] - v0[1]) * t, v0[2] + (v1[2] - v0[2]) * t];
   return C.lonlatOf(v);
 }
 
@@ -112,8 +111,6 @@ function gotoDwarf(i) {
   slideField(D.DWF.lam[i], D.DWF.bet[i], { keepLock: true });
 }
 export function gotoCone(cone) {
-  // re-clicking the locked cone keeps its original restore point; switching from
-  // another cone restores that one's FOV first (replaceLock), then we record ours
   const sameCone = state.lock?.kind === 'cone' && state.lock.id === cone.key;
   const keepRestore = sameCone ? state.lock.restoreFov : undefined;
   replaceLock(null);
@@ -130,12 +127,20 @@ window.addEventListener('v2-goto-cone', e => {
   const cone = D.CONES.find(c => c.key === e.detail);
   if (cone) gotoCone(cone);
 });
+// jump to a Via pointing (from the maps / finder)
+window.addEventListener('v3-goto-via', e => {
+  const i = e.detail;
+  const V = D.VIA;
+  if (!V) return;
+  if (state.fov > 1.001) { state.fov = 1; syncFov(); }
+  replaceLock({ kind: 'via', id: i, name: V.name[i] || `${V.svy[i].toUpperCase()} tile ${V.tile[i]}`, svy: V.svy[i] });
+  slideField(V.lam[i], V.bet[i], { keepLock: true });
+});
 
 // ---- sidebar construction ------------------------------------------------------------
 function option(v, t, sel) { return `<option value="${v}"${sel ? ' selected' : ''}>${t}</option>`; }
 const NONE_OPT = `<option value="">none selected</option>`;
 
-// dwarf-member counts per galaxy (full catalog)
 let MEM_COUNTS = null;
 function memCounts() {
   if (MEM_COUNTS) return MEM_COUNTS;
@@ -143,40 +148,8 @@ function memCounts() {
   if (D.MEM) for (const nm of D.MEM.name) MEM_COUNTS.set(nm, (MEM_COUNTS.get(nm) ?? 0) + 1);
   return MEM_COUNTS;
 }
-
-function candGrid() {
-  const pairs = new Map();
-  for (const c of D.CANDIDATES) {
-    const g = c.glim ?? 20;
-    pairs.set(`${c.fov}|${g}`, { fov: c.fov, glim: g });
-  }
-  if (!pairs.size) return null;
-  let best = null, bd = Infinity;
-  for (const p of pairs.values()) {
-    const d = Math.abs(p.fov - state.fov) * 2 + Math.abs(p.glim - state.ghi);
-    if (d < bd) { bd = d; best = p; }
-  }
-  return best;
-}
-function candOptions() {
-  const best = candGrid();
-  if (!best) return { html: '', lab: 'PROMISING FIELDS' };
-  const list = D.CANDIDATES.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim);
-  const opt = c => option(D.CANDIDATES.indexOf(c),
-    `${c.fov}° • ℓ ${c.l.toFixed(1)}, b ${c.b.toFixed(1)} • G ≤ ${best.glim}`);
-  const top = list.filter(c => (c.sec ?? 'top') === 'top').map(opt).join('');
-  const via = list.filter(c => c.sec === 'via').map(opt).join('');
-  const html = `<optgroup label="top ${list.filter(c => (c.sec ?? 'top') === 'top').length}">${top}</optgroup>` +
-    (via ? `<optgroup label="best with a Via stream">${via}</optgroup>` : '');
-  return { html, lab: `PROMISING FIELDS (${best.fov}°, G≤${best.glim})` };
-}
-
-// mark selects that sit at "none selected" so the closed box shows the dim italic style
 function syncNoneSel(sel) { sel.classList.toggle('nonesel', sel.value === ''); }
-
-// slider fraction -> css left, compensating for the thumb width
 const sliderLeft = f => `calc(${(f * 100).toFixed(2)}% + ${(7 - 14 * f).toFixed(1)}px)`;
-
 function fovSnapDots() {
   return FOV_SNAPS.map(s => {
     const f = (s - 1) / 4;
@@ -185,36 +158,69 @@ function fovSnapDots() {
   }).join('');
 }
 
-// ADS/arXiv sources for the Input Catalogs section
+const fmtN = n => (n ?? 0).toLocaleString();
 const CAT_SOURCES = [
   { src: 'BONACA & PW 24', url: 'https://ui.adsabs.harvard.edu/abs/2025NewAR.10001713B/abstract',
-    num: () => `${D.N.toLocaleString()}`, lab: () => `stream stars · ${D.STREAM_NAMES.length} streams` },
+    num: () => fmtN(D.N), lab: () => `stream stars · ${D.STREAM_NAMES.length} streams (identical to Via's bonaca25 table)` },
   { src: 'BAUMGARDT+21', url: 'https://ui.adsabs.harvard.edu/abs/2021MNRAS.505.5957B/abstract',
     num: () => `${D.GCC.lam.length}`, lab: () => 'globular clusters' },
-  { src: 'MCCONNACHIE+12', url: 'https://ui.adsabs.harvard.edu/abs/2012AJ....144....4M/abstract',
-    num: () => `${D.DWF.lam.length}`, lab: () => 'dwarf galaxies' },
+  { src: 'MCCONNACHIE+12 · PACE LVDB', url: 'https://ui.adsabs.harvard.edu/abs/2012AJ....144....4M/abstract',
+    url2: 'https://github.com/apace7/local_volume_database',
+    num: () => `${D.DWF.lam.length}`, lab: () => `dwarf galaxies (${D.DWF.src.filter(s => s.startsWith('LVDB')).length} post-2012 from LVDB v1.0.6)` },
   { src: 'BATTAGLIA+22', url: 'https://ui.adsabs.harvard.edu/abs/2022A%26A...657A..54B/abstract',
-    num: () => `${D.MEM.lam.length.toLocaleString()}`, lab: () => `members across ${memCounts().size} dwarfs` },
+    num: () => fmtN(D.MEM.lam.length), lab: () => `members across ${memCounts().size} dwarfs (Gaia G)` },
+  { src: 'GEHA+26', url: 'https://arxiv.org/abs/2602.10200',
+    num: () => D.MEM2 ? fmtN(D.MEM2.lam.length) : '…', lab: () => 'DEIMOS dwarf members (predicted G; Via DGS input)' },
   { src: 'STOREY-FISHER+24', url: 'https://ui.adsabs.harvard.edu/abs/2024ApJ...964...69S/abstract',
-    num: () => D.QSO ? D.QSO.lam.length.toLocaleString() : '…', lab: () => 'Quaia quasars · G < 20.5' },
+    num: () => D.QSO ? fmtN(D.QSO.lam.length) : '…', lab: () => 'Quaia quasars · G < 20.5' },
   { src: 'CLEMENTINI+23', url: 'https://ui.adsabs.harvard.edu/abs/2023A%26A...674A..18C/abstract',
-    num: () => D.HALO ? D.HALO.lam.length.toLocaleString() : '…', lab: () => 'halo RR Lyrae · |Z| > 3 kpc' },
-  { src: 'PUTMAN+02 · ADAMS+13', url: 'https://ui.adsabs.harvard.edu/abs/2002AJ....123..873P/abstract',
-    url2: 'https://ui.adsabs.harvard.edu/abs/2013ApJ...768...77A/abstract',
-    num: () => D.CLOUDS ? D.CLOUDS.name.length.toLocaleString() : '—', lab: () => 'HVC clouds (HIPASS + UCHVC)' },
-  { src: 'HI4PI (BEN BEKHTI+16) · WESTMEIER 18', url: 'https://ui.adsabs.harvard.edu/abs/2016A%26A...594A.116H/abstract',
-    url2: 'https://ui.adsabs.harvard.edu/abs/2018MNRAS.474..289W/abstract',
-    num: () => '', lab: () => 'all-sky HI maps' },
+    num: () => D.HALO ? fmtN(D.HALO.lam.length) : '…', lab: () => 'halo RR Lyrae · |Z| > 3 kpc' },
+  { src: 'CHANDRA (PRIV. COMM.)', url: 'https://github.com/via-project/viatarget/blob/main/src/viatarget/data/catalogs.toml',
+    num: () => D.KG ? fmtN(D.KG.lam.length) : '…', lab: () => 'distant K giants, 10–125 kpc (Via KG class)' },
+  { src: 'XUE+11', url: 'https://ui.adsabs.harvard.edu/abs/2011ApJ...738...79X/abstract',
+    num: () => D.BHB ? fmtN(D.BHB.lam.length) : '…', lab: () => 'SDSS BHB stars, 2–77 kpc' },
+  { src: 'KEPLER × GAIA DR3', url: 'https://github.com/via-project/viatarget/blob/main/src/viatarget/data/catalogs.toml',
+    num: () => D.KEP ? fmtN(D.KEP.lam.length) : '…', lab: () => 'Kepler-field stars, parallax distances (Via KRS input)' },
+  { src: 'VIA VISIT LISTS', url: 'https://via-project.org/#/survey',
+    num: () => D.VIA ? fmtN(D.VIA.svy.length) : '—', lab: () => 'planned 1° pointings (cgs · dgs · krs · rbs · sps + approx. transients)' },
+  { src: 'PUTMAN+02 · ADAMS+13 · MOSS+13', url: 'https://ui.adsabs.harvard.edu/abs/2002AJ....123..873P/abstract',
+    url2: 'https://ui.adsabs.harvard.edu/abs/2013ApJS..209...12M/abstract',
+    num: () => D.CLOUDS ? fmtN(D.CLOUDS.name.length) : '—', lab: () => 'HVC clouds (HIPASS + UCHVC + GASS)' },
+  { src: 'HI4PI · WESTMEIER 18 · SFD98', url: 'https://ui.adsabs.harvard.edu/abs/2016A%26A...594A.116H/abstract',
+    url2: 'https://ui.adsabs.harvard.edu/abs/1998ApJ...500..525S/abstract',
+    num: () => '', lab: () => 'all-sky HI, HVC and dust maps' },
+  { src: 'EDENHOFER+24', url: 'https://ui.adsabs.harvard.edu/abs/2024A%26A...685A..82E/abstract',
+    num: () => D.DUST3D ? fmtN(D.DUST3D.n) : '…', lab: () => '3D dust voxels < 1.25 kpc (top 2% densest) + integrated sky slices' },
+  { src: 'BISH+19', url: 'https://ui.adsabs.harvard.edu/abs/2019ApJ...882...76B/abstract',
+    num: () => D.SIGHT?.bish19 ? `${D.SIGHT.bish19.name.length}` : '—', lab: () => 'Keck/HIRES Na I + Ca II BHB sightlines' },
 ];
 function catalogsHtml() {
   return CAT_SOURCES.map(c => {
     const names = c.src.split(' · ');
     const links = c.url2
-      ? `<a href="${c.url}" target="_blank" rel="noopener">${names[0]}</a> · <a href="${c.url2}" target="_blank" rel="noopener">${names[1] ?? ''}</a>`
+      ? `<a href="${c.url}" target="_blank" rel="noopener">${names.slice(0, -1).join(' · ')}</a> · <a href="${c.url2}" target="_blank" rel="noopener">${names[names.length - 1]}</a>`
       : `<a href="${c.url}" target="_blank" rel="noopener">${c.src}</a>`;
     return `<div class="cat-entry"><div class="sec-lab cat-src">${links}</div>` +
       `<div class="cat-num">${c.num() ? c.num() + ' ' : ''}<span class="tiny">${c.lab()}</span></div></div>`;
   }).join('');
+}
+
+function listSourcesHtml() {
+  const groups = new Map();
+  for (const s of SOURCES) {
+    if (!groups.has(s.group)) groups.set(s.group, []);
+    groups.get(s.group).push(s);
+  }
+  let html = '';
+  for (const [g, srcs] of groups) {
+    html += `<div class="src-group">${g}</div>`;
+    for (const s of srcs) {
+      const n = s.items().length;
+      const dot = s.svy ? `<i class="sw" style="background:${SVY_COL[s.svy]};border-radius:50%"></i>` : '';
+      html += `<label><input type="checkbox" data-src="${s.id}" ${state.listSrc.includes(s.id) ? 'checked' : ''}> ${dot}${s.title}<span class="n">${n}</span></label>`;
+    }
+  }
+  return html;
 }
 
 function buildSidebar() {
@@ -235,13 +241,11 @@ function buildSidebar() {
     return option(i, `${D.DWF.name[i]}${n ? ` (${n}★)` : ''} · ${D.DWF.dist[i].toFixed(1)} kpc`, state.dwarfSel === i);
   };
   const dgOpts = [...withMem.map(dgOpt), ...noMem.map(dgOpt)];
-  const cand = candOptions();
-  // stream subheading color: the distance colormap at ~10 kpc
   const streamHead = scales.dist.css((10 - D.DIST_MIN) / (D.DIST_MAX - D.DIST_MIN));
+  const chk = (id, key, label, sw, title = '') =>
+    `<label title="${title}"><input type="checkbox" id="${id}" ${state[key] ? 'checked' : ''}> ${sw ? `<i class="sw ${sw}"></i>` : ''}${label}</label>`;
 
-  $('sidebar').innerHTML = `
-  <div class="brand">VIAsual</div>
-
+  $('sidebar-body').innerHTML = `
   <div id="core-controls">
     <div class="row"><label>FOV <b id="fov-v">${state.fov.toFixed(1)}</b>° <span class="tiny" id="fov-note"></span></label>
       <div class="fov-wrap">
@@ -249,12 +253,12 @@ function buildSidebar() {
         ${fovSnapDots()}
       </div>
     </div>
-    <div class="row"><label>color by</label>
+    <div class="row"><label>color stars by</label>
       <select id="mode-sel">
         ${option('dist', 'Distance (kpc)', state.mode === 'dist')}
         ${option('mag', 'Magnitude (Gaia G)', state.mode === 'mag')}
-        ${option('hemi', 'Visibility/site', state.mode === 'hemi')}
-        ${option('stream', 'Streams', state.mode === 'stream')}
+        ${option('hemi', 'Visibility / site', state.mode === 'hemi')}
+        ${option('stream', 'Stream identity', state.mode === 'stream')}
       </select>
     </div>
     <div class="row"><label>mag limit G ≤ <b id="ghi-v">${state.ghi.toFixed(1)}</b>
@@ -263,69 +267,42 @@ function buildSidebar() {
     </div>
   </div>
 
+  <details class="group" open>
+    <summary>Catalogs <span class="sum-cap">— what counts as a target</span></summary>
+    <div class="row checks catalogs"><label class="tiny sec-lab">structures with distances</label>
+      ${chk('streams-chk', 'streamsOn', 'streams', 'str')}
+      ${chk('dg-chk', 'dgOn', 'dwarfs', 'dg')}
+      ${chk('gc-chk', 'gcOn', 'GCs', 'gc')}
+    </div>
+    <div class="row checks"><label class="tiny sec-lab">individual halo tracers (pair-rule rungs)</label>
+      ${chk('halo-chk', 'haloOn', 'halo RRL', 'halo', 'Gaia DR3 RR Lyrae, |Z|>3 kpc, ~10% distances')}
+      ${chk('kg-chk', 'kgOn', 'K giants', 'kg', 'Chandra distant K giants, isochrone distances 10-125 kpc')}
+      ${chk('bhb-chk', 'bhbOn', 'BHB', 'bhb', 'Xue+11 SDSS blue horizontal branch stars, 2-77 kpc')}
+      ${chk('kep-chk', 'kepOn', 'Kepler stars', 'kep', 'Gaia stars in the Kepler field, parallax distances (< 5 kpc)')}
+    </div>
+    <div class="row checks"><label class="tiny sec-lab">backlights at infinity</label>
+      ${chk('qso-chk', 'qsoOn', 'quasars', 'qso')}
+    </div>
+    <div class="row checks"><label class="tiny sec-lab">stream / dwarf filters</label>
+      ${chk('via-chk', 'via', 'Via streams only', '')}
+      ${chk('via-dg-chk', 'viaDwarfs', 'dwarfs ≤ 300 kpc', '')}
+    </div>
+    <div class="row checks"><label class="tiny sec-lab">dwarf member stars</label>
+      ${chk('mem-chk', 'memOn', 'Battaglia+22 (Gaia G)', 'mem')}
+      ${chk('mem2-chk', 'mem2On', 'Geha+26 (predicted G)', 'mem2')}
+    </div>
+  </details>
+
   <details class="group">
-    <summary>3D display</summary>
-    <div class="row checks catalogs"><label class="tiny sec-lab">display objects</label>
-      <label><input type="checkbox" id="streams-chk" ${state.streamsOn ? 'checked' : ''}> <i class="sw str"></i>streams</label>
-      <label><input type="checkbox" id="dg-chk" ${state.dgOn ? 'checked' : ''}> <i class="sw dg"></i>dwarfs</label>
-      <label><input type="checkbox" id="gc-chk" ${state.gcOn ? 'checked' : ''}> <i class="sw gc"></i>GCs</label>
-      <label><input type="checkbox" id="qso-chk" ${state.qsoOn ? 'checked' : ''}> <i class="sw qso"></i>quasars</label>
-      <label><input type="checkbox" id="halo-chk" ${state.haloOn ? 'checked' : ''}> <i class="sw halo"></i>halo RRL</label>
-    </div>
-    <div class="row"><label class="tiny sec-lab">display fields</label></div>
-    ${D.CONES.map(c => `
-    <div class="row combo cone-row">
-      <button class="cone-btn" data-cone="${c.key}" style="--cone:${c.color}">${c.name} <span class="tiny">(${c.fov}°)</span></button>
-      <button class="mini-btn cone-go" data-cone="${c.key}">GO</button>
-    </div>`).join('')}
-    <div class="row"><label class="tiny sec-lab">display options</label></div>
-    <div class="row combo">
-      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">disk (10 kpc)</button>
-      <button id="hisph-btn" class="cone-btn ${state.hiSphere ? 'on' : ''}" style="--cone:#5b8fc9">HI shell</button>
-    </div>
-    <div class="row checks">
-      <label><input type="checkbox" id="box-chk" ${state.boxOn ? 'checked' : ''}> ${D.BOX_R} kpc box</label>
-      <label><input type="checkbox" id="hemi-cones" ${state.hemiCones ? 'checked' : ''}> site visibility</label>
-    </div>
-    <div class="row">
-      <button id="theme-btn" class="theme-btn ${state.theme === 'light' ? 'on' : ''}">white background</button>
-    </div>
-  </details>
-
-  <details class="group" open>
-    <summary>Fields
-      <span class="sum-btns">
-        <button id="hist-back" class="micro-btn" title="back to the previous field">◀</button>
-        <button id="hist-fwd" class="micro-btn" title="forward again">▶</button>
-      </span>
-    </summary>
-    <div class="row"><label class="sec-lab" id="cand-lab">${cand.lab}</label>
-      <select id="cand-sel">${NONE_OPT}${cand.html}</select>
-    </div>
-    <div class="row"><label class="sec-lab">SAVED FIELDS</label>
-      <div class="save-row">
-        <button id="save-field" class="mini-btn">save field</button>
-        <span class="save-col">
-          <button id="export-saved" class="micro-btn">copy list</button>
-          <button id="import-saved" class="micro-btn">paste list</button>
-        </span>
-      </div>
-    </div>
-    <div id="saved-list"></div>
-  </details>
-
-
-  <details class="group" open>
-    <summary>Targets
-      <span class="sum-btns"><button id="reset-sel" class="micro-btn" title="clear all three selections">reset</button></span>
+    <summary>Go to <span class="sum-cap">— streams · dwarfs · clusters · survey regions</span>
+      <span class="sum-btns"><button id="reset-sel" class="micro-btn" title="clear all selections">reset</button></span>
     </summary>
     <div class="subhead" style="color:${streamHead}">Streams</div>
     <div class="row checks">
-      <label><input type="checkbox" id="via-chk" ${state.via ? 'checked' : ''}> Via only</label>
       <label><input type="checkbox" id="hl-stream" ${state.hlStream ? 'checked' : ''}> highlight selected</label>
     </div>
     <div class="row combo">
-      <select id="stream-sel">${NONE_OPT}${sortedStreams.map(s => option(s, s, state.streamSel === s)).join('')}</select>
+      <select id="stream-sel">${NONE_OPT}${sortedStreams.map(s => option(s, `${s}${D.VIA_SET.has(s) ? ' · Via' : ''}`, state.streamSel === s)).join('')}</select>
       <button id="stream-go" class="mini-btn" title="go to this stream">GO</button>
     </div>
     <div class="row"><label>scan along stream</label>
@@ -334,15 +311,11 @@ function buildSidebar() {
     <div class="subdiv"></div>
     <div class="subhead" style="color:${UI.dwarf}">Dwarf galaxies</div>
     <div class="row checks">
-      <label><input type="checkbox" id="via-dg-chk" ${state.viaDwarfs ? 'checked' : ''}> &le; 300 kpc</label>
       <label><input type="checkbox" id="hl-dwarf" ${state.hlDwarf ? 'checked' : ''}> highlight selected</label>
     </div>
     <div class="row combo">
       <select id="dg-sel">${NONE_OPT}${dgOpts.join('')}</select>
       <button id="dg-go" class="mini-btn" title="go to this dwarf">GO</button>
-    </div>
-    <div class="row checks">
-      <label><input type="checkbox" id="mem-chk" ${state.memOn ? 'checked' : ''}> display members</label>
     </div>
     <div class="subdiv"></div>
     <div class="subhead" style="color:${UI.gc}">Globular clusters</div>
@@ -353,29 +326,100 @@ function buildSidebar() {
       <select id="gc-sel">${NONE_OPT}${gcOpts.join('')}</select>
       <button id="gc-go" class="mini-btn" title="go to this cluster">GO</button>
     </div>
+    <div class="subdiv"></div>
+    <div class="subhead">Survey regions <span class="tiny">(cones in 3D · circles on the maps)</span></div>
+    ${D.CONES.map(c => `
+    <div class="row combo cone-row">
+      <button class="cone-btn" data-cone="${c.key}" style="--cone:${c.color}">${c.name} <span class="tiny">(${c.fov}°)</span></button>
+      <button class="mini-btn cone-go" data-cone="${c.key}">GO</button>
+    </div>`).join('')}
+  </details>
+
+  <details class="group" open>
+    <summary>Field lists <span class="sum-cap">— step through fields</span>
+      <span class="sum-btns">
+        <button id="hist-back" class="micro-btn" title="previous field (⌘Z)">◀</button>
+        <button id="hist-fwd" class="micro-btn" title="next field (⌘⇧Z)">▶</button>
+      </span>
+    </summary>
+    <div class="list-srcs" id="list-srcs">${listSourcesHtml()}</div>
+    <div class="row"><label class="sec-lab" id="cand-lab">FIELD IN ACTIVE LIST</label>
+      <select id="cand-sel">${NONE_OPT}</select>
+    </div>
+    <div class="help">Check one or more lists to open the player under the 3D view. ← → step, space plays, sort by rungs / targets / HI.</div>
+    <div class="row"><label class="sec-lab">SAVED FIELDS</label>
+      <div class="save-row">
+        <button id="save-field" class="mini-btn">save current field</button>
+        <span class="save-col">
+          <button id="export-saved" class="micro-btn">copy list</button>
+          <button id="import-saved" class="micro-btn">paste list</button>
+        </span>
+      </div>
+    </div>
+    <div id="saved-list"></div>
   </details>
 
   <details class="group">
-    <summary>Clouds</summary>
-    <div class="row"><select id="himap-sel">
-      ${option('total', 'Total N(HI) (all v)', state.himap === 'total')}
-      ${option('hvc', 'High-velocity (HVC)', state.himap === 'hvc')}
-      ${option('overlay', 'Total + HVC overlay', state.himap === 'overlay')}
+    <summary>Via survey plan <span class="sum-cap">— planned pointings</span></summary>
+    <div class="row checks">
+      ${chk('via-on-chk', 'viaOn', 'show planned pointings on the maps', '')}
+    </div>
+    <div class="svy-chips" id="svy-chips">
+      ${(D.VIA?.SVY_KEYS ?? []).map(k => `<button class="chip-btn ${state.viaSvy[k] ? 'on' : ''}" data-svy="${k}" style="--svy:${SVY_COL[k]}" title="${D.VIA.surveys[k]}">${SVY_SHORT[k] ?? k} <span class="tiny">${D.VIA.svy.filter(s => s === k).length}</span></button>`).join('')}
+    </div>
+    <div class="row checks">
+      ${chk('via3d-chk', 'via3d', 'pointing directions in 3D (15 kpc shell)', '')}
+    </div>
+    <div class="help">Unique 1° pointings from the Via visit lists. Cold Gas subsurveys: PLANE 576 · HI_ABS 100 · HVC 100 · EXGAL 98 · SGR 30 · KEPLER 1. "Transients≈" is a seeded random approximation of where Rubin transients will appear.</div>
+  </details>
+
+  <details class="group">
+    <summary>Gas &amp; dust <span class="sum-cap">— backgrounds · clouds · sightlines</span></summary>
+    <div class="row"><label>background map (all views)</label><select id="himap-sel">
+      ${BG_OPTIONS.map(([v, t]) => option(v, t, state.himap === v)).join('')}
     </select></div>
     <div class="row checks">
-      <label><input type="checkbox" id="clouds-chk" ${state.cloudsOn ? 'checked' : ''}> <i class="sw cloud"></i>HVC clouds</label>
+      ${chk('clouds-chk', 'cloudsOn', 'HVC cloud catalogs', 'cloud')}
+      ${chk('hisph-chk', 'hiSphere', 'map shell in 3D', '')}
     </div>
-    <div class="row"><label>cloud subset</label>
-      <select id="cloud-filter">
-        <option value="all"${state.cloudFilter === 'all' ? ' selected' : ''}>all (Putman+02 + UCHVC)</option>
+    <div class="row checks"><label class="tiny sec-lab">local 3D dust (Edenhofer+24, &lt; 1.25 kpc)</label>
+      ${chk('dust3d-chk', 'dust3dOn', 'dust cloud in 3D', '')}
+      <button id="zoom-local" class="micro-btn" title="fly the camera to within a few kpc of the Sun">zoom to local volume</button>
+      <button id="zoom-halo" class="micro-btn" title="back out to the halo view">halo view</button>
+    </div>
+    <div class="row checks"><label class="tiny sec-lab">cloud catalogs</label>
+      ${chk('cl-hipass', 'cloudHipass', 'HIPASS (S)', '')}
+      ${chk('cl-alfalfa', 'cloudAlfalfa', 'UCHVC', '')}
+      ${chk('cl-gass', 'cloudGass', 'GASS (S)', '')}
+    </div>
+    <div class="row combo"><select id="cloud-filter">
+        <option value="all"${state.cloudFilter === 'all' ? ' selected' : ''}>all clouds</option>
         <option value="compact"${state.cloudFilter === 'compact' ? ' selected' : ''}>compact only (CHVC + UCHVC)</option>
         <option value="vhvc"${state.cloudFilter === 'vhvc' ? ' selected' : ''}>very high velocity (|vLSR| ≥ 200)</option>
       </select>
+      <select id="cloud-color">
+        <option value="none"${state.cloudColor === 'none' ? ' selected' : ''}>one color</option>
+        <option value="vlsr"${state.cloudColor === 'vlsr' ? ' selected' : ''}>color by v_LSR</option>
+        <option value="vgsr"${state.cloudColor === 'vgsr' ? ' selected' : ''}>color by v_GSR</option>
+      </select></div>
+    <div class="row checks"><label class="tiny sec-lab">literature sightlines</label>
+      ${chk('sight-chk', 'sightOn', 'Bish+19 Na I / Ca II BHB sightlines', 'sight')}
     </div>
   </details>
 
   <details class="group">
-    <summary>Input Catalogs</summary>
+    <summary>3D view</summary>
+    <div class="row combo">
+      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">disk (R 10 · z 1 kpc)</button>
+    </div>
+    <div class="row checks">
+      <label><input type="checkbox" id="box-chk" ${state.boxOn ? 'checked' : ''}> ${D.BOX_R} kpc box</label>
+      <label><input type="checkbox" id="hemi-cones" ${state.hemiCones ? 'checked' : ''}> site visibility cones</label>
+    </div>
+  </details>
+
+  <details class="group">
+    <summary>Input catalogs</summary>
     <div id="catalog-list">${catalogsHtml()}</div>
   </details>`;
 
@@ -384,11 +428,11 @@ function buildSidebar() {
   syncFov();
   syncHistory();
   syncLockButtons();
-  for (const id of ['cand-sel', 'stream-sel', 'dg-sel', 'gc-sel']) syncNoneSel($(id));
+  refreshCandidates();
+  for (const id of ['stream-sel', 'dg-sel', 'gc-sel']) syncNoneSel($(id));
 }
 
 function wireSidebar() {
-  // FOV slider with snap points
   const fovEl = $('fov');
   fovEl.addEventListener('input', e => {
     let v = parseFloat(e.target.value);
@@ -406,19 +450,23 @@ function wireSidebar() {
     });
   });
 
+  // field lists
+  $('list-srcs').addEventListener('change', e => {
+    const id = e.target.dataset?.src;
+    if (!id) return;
+    const srcs = state.listSrc.filter(s => s !== id);
+    if (e.target.checked) srcs.push(id);
+    setPlaying(false);
+    set({ listSrc: srcs, listPos: -1 }, 'lists');
+    rebuild();
+  });
   $('cand-sel').addEventListener('change', e => {
     syncNoneSel(e.target);
     if (e.target.value === '') return;
-    const c = D.CANDIDATES[+e.target.value];
-    state.fov = c.fov;
-    syncFov();
-    slideField(c.lam, c.bet);
+    gotoIndex(+e.target.value);
   });
 
-  // changing a dropdown after a GO drops that GO's lock (the button unhighlights)
-  const dropLock = kind => {
-    if (state.lock?.kind === kind) replaceLock(null);
-  };
+  const dropLock = kind => { if (state.lock?.kind === kind) replaceLock(null); };
   $('stream-sel').addEventListener('change', e => {
     syncNoneSel(e.target); dropLock('stream'); set({ streamSel: e.target.value || null });
   });
@@ -432,9 +480,8 @@ function wireSidebar() {
 
   $('mode-sel').addEventListener('change', e => set({ mode: e.target.value }));
   const paintGhi = () => {
-    const el = $('ghi');
     const f = (state.ghi - D.GMIN) / (D.GMAX - D.GMIN) * 100;
-    el.style.setProperty('--fill', f.toFixed(1) + '%');
+    $('ghi').style.setProperty('--fill', f.toFixed(1) + '%');
   };
   $('ghi').addEventListener('input', e => {
     $('ghi-v').textContent = (+e.target.value).toFixed(1);
@@ -448,18 +495,8 @@ function wireSidebar() {
     e.currentTarget.classList.toggle('on', v);
     set({ diskOn: v });
   });
-  $('hisph-btn').addEventListener('click', e => {
-    const v = !state.hiSphere;
-    e.currentTarget.classList.toggle('on', v);
-    set({ hiSphere: v });
-  });
   $('box-chk').addEventListener('change', e => set({ boxOn: e.target.checked }));
   $('hemi-cones').addEventListener('change', e => set({ hemiCones: e.target.checked }));
-  $('theme-btn').addEventListener('click', e => {
-    const light = state.theme !== 'light';
-    set({ theme: light ? 'light' : 'dark' });
-    e.target.classList.toggle('on', light);
-  });
   document.querySelectorAll('.cone-btn[data-cone]').forEach(b => {
     b.classList.toggle('on', !!state[b.dataset.cone]);
     b.addEventListener('click', () => {
@@ -469,12 +506,24 @@ function wireSidebar() {
       set({ [key]: v });
     });
   });
+  document.querySelectorAll('.cone-go').forEach(b => {
+    b.addEventListener('click', () => {
+      const cone = D.CONES.find(c => c.key === b.dataset.cone);
+      if (cone) gotoCone(cone);
+    });
+  });
 
-  $('via-chk').addEventListener('change', e => set({ via: e.target.checked }));
-  $('hl-stream').addEventListener('change', e => set({ hlStream: e.target.checked }));
-  $('via-dg-chk').addEventListener('change', e => set({ viaDwarfs: e.target.checked }));
-  $('hl-dwarf').addEventListener('change', e => set({ hlDwarf: e.target.checked }));
-  $('hl-gc').addEventListener('change', e => set({ hlGC: e.target.checked }));
+  const simple = [
+    ['via-chk', 'via'], ['hl-stream', 'hlStream'], ['via-dg-chk', 'viaDwarfs'], ['hl-dwarf', 'hlDwarf'], ['hl-gc', 'hlGC'],
+    ['streams-chk', 'streamsOn'], ['qso-chk', 'qsoOn'], ['gc-chk', 'gcOn'], ['dg-chk', 'dgOn'], ['mem-chk', 'memOn'],
+    ['mem2-chk', 'mem2On'], ['halo-chk', 'haloOn'], ['kg-chk', 'kgOn'], ['bhb-chk', 'bhbOn'], ['kep-chk', 'kepOn'],
+    ['clouds-chk', 'cloudsOn'], ['hisph-chk', 'hiSphere'], ['cl-hipass', 'cloudHipass'], ['cl-alfalfa', 'cloudAlfalfa'],
+    ['cl-gass', 'cloudGass'], ['sight-chk', 'sightOn'], ['via-on-chk', 'viaOn'], ['via3d-chk', 'via3d'],
+    ['dust3d-chk', 'dust3dOn'],
+  ];
+  for (const [id, key] of simple) $(id).addEventListener('change', e => set({ [key]: e.target.checked }));
+  $('zoom-local').addEventListener('click', () => window.dispatchEvent(new CustomEvent('v3-zoom', { detail: 'local' })));
+  $('zoom-halo').addEventListener('click', () => window.dispatchEvent(new CustomEvent('v3-zoom', { detail: 'halo' })));
   $('gc-sel').addEventListener('change', e => {
     syncNoneSel(e.target); dropLock('gc'); set({ gcSel: e.target.value === '' ? null : +e.target.value });
   });
@@ -483,34 +532,23 @@ function wireSidebar() {
     syncNoneSel(e.target); dropLock('dwarf'); set({ dwarfSel: e.target.value === '' ? null : +e.target.value });
   });
   $('dg-go').addEventListener('click', () => { if (state.dwarfSel !== null) gotoDwarf(state.dwarfSel); });
-  document.querySelectorAll('.cone-go').forEach(b => {
+  $('himap-sel').addEventListener('change', e => set({ himap: e.target.value }));
+  $('cloud-filter').addEventListener('change', e => set({ cloudFilter: e.target.value }));
+  $('cloud-color').addEventListener('change', e => set({ cloudColor: e.target.value }));
+  document.querySelectorAll('#svy-chips .chip-btn').forEach(b => {
     b.addEventListener('click', () => {
-      const cone = D.CONES.find(c => c.key === b.dataset.cone);
-      if (cone) gotoCone(cone);
+      const k = b.dataset.svy;
+      const v = !state.viaSvy[k];
+      b.classList.toggle('on', v);
+      set({ viaSvy: { ...state.viaSvy, [k]: v } });
     });
   });
 
-  $('streams-chk').addEventListener('change', e => set({ streamsOn: e.target.checked }));
-  $('qso-chk').addEventListener('change', e => set({ qsoOn: e.target.checked }));
-  $('gc-chk').addEventListener('change', e => set({ gcOn: e.target.checked }));
-  $('dg-chk').addEventListener('change', e => set({ dgOn: e.target.checked }));
-  $('mem-chk').addEventListener('change', e => set({ memOn: e.target.checked }));
-  $('halo-chk').addEventListener('change', e => set({ haloOn: e.target.checked }));
-  $('himap-sel').addEventListener('change', e => set({ himap: e.target.value }));
-  $('clouds-chk').addEventListener('change', e => set({ cloudsOn: e.target.checked }));
-  $('cloud-filter').addEventListener('change', e => set({ cloudFilter: e.target.value }));
-
-  // the history arrows live inside the <summary>: don't let clicks toggle the section
   $('hist-back').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(-1); });
   $('hist-fwd').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(1); });
-  // Targets summary "reset": all three selections back to none selected
   $('reset-sel').addEventListener('click', e => {
     e.preventDefault(); e.stopPropagation();
-    for (const id of ['stream-sel', 'dg-sel', 'gc-sel']) {
-      const el = $(id);
-      el.value = '';
-      syncNoneSel(el);
-    }
+    for (const id of ['stream-sel', 'dg-sel', 'gc-sel']) { const el = $(id); el.value = ''; syncNoneSel(el); }
     if (['stream', 'gc', 'dwarf'].includes(state.lock?.kind)) replaceLock(null);
     set({ streamSel: null, gcSel: null, dwarfSel: null });
   });
@@ -542,13 +580,12 @@ function wireSidebar() {
   on('history', syncHistory);
   on('lock', syncLockButtons);
   on('field', syncLockButtons);
-  on('ui', refreshCandidates);
-  on('field', refreshCandidates);
-  on('field', syncFov);            // fov can change via history / cones / saved chips
+  on('field', syncFov);
   on('ui', syncFov);
-  on('quaia', refreshCatalogs);
-  on('halo', refreshCatalogs);
-  // a lingering hover tooltip after scrolling the dossier
+  on('list', refreshCandidates);
+  on('list', refreshListCounts);
+  on('saved', renderSaved);
+  on('catalog', refreshCatalogs);
   document.getElementById('dossier').addEventListener('scroll', () => {
     document.getElementById('tooltip2d').style.display = 'none';
   }, { passive: true });
@@ -557,6 +594,14 @@ function wireSidebar() {
 function refreshCatalogs() {
   const el = $('catalog-list');
   if (el) el.innerHTML = catalogsHtml();
+}
+function refreshListCounts() {
+  const box = $('list-srcs');
+  if (!box) return;
+  for (const s of SOURCES) {
+    const lab = box.querySelector(`input[data-src="${s.id}"]`)?.parentElement;
+    if (lab) { lab.querySelector('.n').textContent = s.items().length; lab.querySelector('input').checked = state.listSrc.includes(s.id); }
+  }
 }
 
 function syncFov() {
@@ -567,7 +612,7 @@ function syncFov() {
   if (fovEl && Math.abs(parseFloat(fovEl.value) - state.fov) > 0.01) {
     fovEl.value = Math.min(5, Math.max(1, state.fov));
   }
-  $('fov-note').textContent = state.fov <= 1.001 ? 'Via field' : `≈ ${Math.round(state.fov ** 2)} pointings`;
+  $('fov-note').textContent = state.fov <= 1.001 ? 'one Via pointing' : `≈ ${Math.round(state.fov ** 2)} pointings`;
   for (const s of document.querySelectorAll('.fov-snap, .fov-dot')) {
     s.classList.toggle('active', Math.abs(parseFloat(s.dataset.fov) - state.fov) < 0.01);
   }
@@ -592,35 +637,34 @@ function syncLockButtons() {
   if (sc && L?.kind !== 'stream') sc.disabled = true;
 }
 
-let candKey = '';
+// the "field in active list" dropdown mirrors the player's order + position
 function refreshCandidates() {
   const sel = $('cand-sel');
   if (!sel) return;
-  const key = `${state.fov}|${state.ghi}`;
-  if (key === candKey) return;
-  candKey = key;
-  const cand = candOptions();
-  sel.innerHTML = `${NONE_OPT}${cand.html}`;
+  const opts = LIST.order.map((it, i) => {
+    const sc = it.score ? ` · ${it.score.rungs}R` : '';
+    return option(i, `${i + 1}. ${it.label}${it.sub ? ` · ${it.sub}` : ''}${sc}`, state.listPos === i);
+  });
+  sel.innerHTML = `${NONE_OPT}${opts.join('')}`;
+  if (state.listPos >= 0) sel.value = String(state.listPos);
   syncNoneSel(sel);
-  $('cand-lab').textContent = cand.lab;
+  $('cand-lab').textContent = LIST.order.length ? `FIELD IN ACTIVE LIST (${LIST.order.length})` : 'FIELD IN ACTIVE LIST — none open';
 }
 
-// saved-field label: `1° • ℓ −28.9, b 79.8 • G ≤ 20` (object name replaces the
-// coordinates when the field was saved while locked on an object)
 export function fieldLabelHtml(f) {
   const fov = f.fov ? `${(+f.fov).toFixed(f.fov % 1 ? 1 : 0)}°` : '1°';
-  const mid = f.obj ? f.obj
-    : `<i>ℓ</i> ${f.l.toFixed(1)}, <i>b</i> ${f.b.toFixed(1)}`;
+  const mid = f.obj ? f.obj : `<i>ℓ</i> ${f.l.toFixed(1)}, <i>b</i> ${f.b.toFixed(1)}`;
   const g = f.ghi ? ` • G ≤ ${(+f.ghi).toFixed(f.ghi % 1 ? 1 : 0)}` : '';
   return `${fov} • ${mid}${g}`;
 }
 
 function renderSaved() {
   const box = $('saved-list');
+  if (!box) return;
   box.innerHTML = '';
   const list = loadSaved();
   if (!list.length) {
-    box.innerHTML = `<span class="tiny">none yet — ☆ saves the current field</span>`;
+    box.innerHTML = `<span class="tiny">none yet — save the current field, or ☆ in the player</span>`;
     return;
   }
   list.forEach((f, i) => {
@@ -646,19 +690,53 @@ function renderSaved() {
   });
 }
 
-// ---- tabs ------------------------------------------------------------------------
+// ---- tabs / sidebar / theme ---------------------------------------------------------------
 function showTab(name) {
   state.tab = name;
-  for (const t of document.querySelectorAll('.tab-btn')) {
-    t.classList.toggle('active', t.dataset.tab === name);
-  }
-  for (const p of document.querySelectorAll('.tab-page')) {
-    p.style.display = p.dataset.tab === name ? '' : 'none';
-  }
+  for (const t of document.querySelectorAll('.tab-btn')) t.classList.toggle('active', t.dataset.tab === name);
+  for (const p of document.querySelectorAll('.tab-page')) p.style.display = p.dataset.tab === name ? '' : 'none';
   emit('fieldmodel', {});           // panels in the newly shown tab need a redraw
 }
+function setSidebar(open) {
+  state.sidebar = open;
+  $('layout').classList.toggle('sb-open', open);
+  $('layout').classList.toggle('sb-closed', !open);
+  set({ sidebar: open }, 'layout');
+}
+function setTheme(name) {
+  applyTheme(name);
+  $('theme-btn').textContent = name === 'light' ? '☾' : '☀';
+  $('theme-btn').title = name === 'light' ? 'switch to dark' : 'switch to light';
+  set({ theme: name }, 'theme');
+  emit('ui');
+}
 
-// ---- oracle cross-check (numbers comparable to v1 / the notebook) --------------------
+// ---- keyboard ---------------------------------------------------------------------------
+function wireKeys() {
+  window.addEventListener('keydown', e => {
+    const tag = document.activeElement?.tagName;
+    const typing = tag === 'INPUT' && document.activeElement.type !== 'checkbox' && document.activeElement.type !== 'range';
+    if (typing || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (!document.getElementById('tour').hidden) return;
+    const meta = e.metaKey || e.ctrlKey;
+    if (meta && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      histGo(e.shiftKey ? 1 : -1);
+      return;
+    }
+    if (meta) return;
+    switch (e.key) {
+      case 'ArrowLeft': if (state.listSrc.length) { e.preventDefault(); stepList(-1); } break;
+      case 'ArrowRight': if (state.listSrc.length) { e.preventDefault(); stepList(1); } break;
+      case ' ': if (state.listSrc.length) { e.preventDefault(); setPlaying(!isPlaying()); } break;
+      case 'c': case 'C': setSidebar(!state.sidebar); break;
+      case '?': startTour(); break;
+      case 's': case 'S': if (!e.shiftKey) { saveCurrentField(); renderSaved(); } break;
+    }
+  });
+}
+
+// ---- oracle cross-check (numbers comparable to v1 / v2 / the notebook) --------------------
 window.viasualVerify = function () {
   const [l0, b0] = galField();
   return {
@@ -667,14 +745,16 @@ window.viasualVerify = function () {
     streams: Object.fromEntries(F.comp),
     gcs: F.gc.map(i => D.GCC.name[i]),
     dwarfs: F.dw.map(i => D.DWF.name[i]),
-    nMembers: F.mm.length,
-    nHalo: F.hh?.length ?? 0,
+    nMembers: F.mm.length, nMembersGeha: F.mm2.length,
+    nHalo: F.hh?.length ?? 0, nKg: F.kg.length, nBhb: F.bhb.length, nKep: F.kep.length,
     nQso: F.qq.length,
     nClouds: F.cloudsInField?.length ?? 0,
-    clouds: (F.cloudsInField ?? []).slice(0, 12).map(i => D.CLOUDS.name[i]),
+    nVia: F.via.length,
     hi: F.hi ? { peak: F.hi.peak, mean: F.hi.mean } : null,
+    ebv: F.ebv,
     ladder: { nRungs: F.ladder.nRungs, structures: F.ladder.structures.map(r => `${r.dist.toFixed(1)}kpc ${r.kind} ${r.label} (n=${r.n})`) },
     visible: { MMT: F.vMMT, Magellan: F.vMag },
+    list: { srcs: state.listSrc, n: LIST.order.length, pos: state.listPos },
   };
 };
 
@@ -684,41 +764,60 @@ async function boot() {
   const prog = $('load-progress');
   try {
     prog.textContent = 'loading catalogs…';
+    loadPrefs();
     await loadCore(DATA_DIR, name => { prog.textContent = `loaded ${name}…`; });
+    bindHimap(() => state.himap);
     initScales();
     state.lam0 = -150.147;      // default field: a GD-1 x Sagittarius overlap (Matt 8-20-26)
     state.bet0 = 10.389;
     state.glo = D.GMIN;
     state.ghi = Math.min(20.0, D.GMAX);
     initHash();                                   // may override from a shared link
-    if (state.tab === 'halo') state.tab = 'field';   // the halo tab is gone (8-20-26)
-    if (state.mode === 'dens') state.mode = 'dist';  // density coloring removed (8-20-26)
+    if (!['field', 'sky'].includes(state.tab)) state.tab = 'field';
+    if (state.mode === 'dens') state.mode = 'dist';
+    applyTheme(state.theme);
+    $('theme-btn').textContent = state.theme === 'light' ? '☾' : '☀';
+    $('layout').classList.toggle('sb-open', state.sidebar);
+    $('layout').classList.toggle('sb-closed', !state.sidebar);
     histSeed();
     initFieldModel();
+    initLists();
     buildSidebar();
     initScene($('scene'));
     initFinder($('finder-wrap'));
     initLadder($('ladder-wrap'));
     initStats($('stats-wrap'), $('bottom-bar'));
     initHists($('hists-wrap'));
+    initLayers($('layers-wrap'));
     initAllsky($('allsky-wrap'));
     initSgrmap($('sgrmap-wrap'));
-    for (const t of document.querySelectorAll('.tab-btn')) {
-      t.addEventListener('click', () => showTab(t.dataset.tab));
-    }
+    initPlayer($('player'));
+    initTour({
+      openSidebar: () => setSidebar(true),
+      showPlayer: () => { if (!state.listSrc.length) { set({ listSrc: ['via:sps'] }, 'lists'); rebuild(); } },
+    });
+    for (const t of document.querySelectorAll('.tab-btn')) t.addEventListener('click', () => showTab(t.dataset.tab));
+    $('sb-toggle').addEventListener('click', () => setSidebar(!state.sidebar));
+    $('theme-btn').addEventListener('click', () => setTheme(state.theme === 'light' ? 'dark' : 'light'));
+    $('help-btn').addEventListener('click', startTour);
+    wireKeys();
     showTab(state.tab);
     recompute({});
+    if (state.listSrc.length) rebuild();
     overlay.classList.add('done');
     setTimeout(() => overlay.remove(), 450);
-    // lazy heavy catalogs
-    loadQuaia(DATA_DIR).then(n => {
-      console.log(`[viasual2] quaia loaded: ${n}`);
-      emit('quaia');
-    });
-    loadHalo(DATA_DIR).then(n => {
-      if (n) { console.log(`[viasual2] halo RRL loaded: ${n}`); emit('halo'); }
-    });
-    console.log(`[viasual2] boot ok — ${D.N} stars, load ${D.loadMs.toFixed(0)} ms`);
+    if (!tourDone()) setTimeout(startTour, 600);
+    // lazy heavy catalogs — each arrival recomputes the field + refreshes the counts
+    const lazy = [
+      ['quaia', () => loadQuaia(DATA_DIR)], ['halo RRL', () => loadHalo(DATA_DIR)],
+      ['K giants', () => loadKgiants(DATA_DIR)], ['BHB', () => loadBhb(DATA_DIR)],
+      ['Kepler stars', () => loadKepler(DATA_DIR)], ['Geha members', () => loadGeha(DATA_DIR)],
+      ['dust', () => loadDust(DATA_DIR)], ['3D dust', () => loadDust3d(DATA_DIR)],
+    ];
+    for (const [nm, fn] of lazy) {
+      fn().then(n => { console.log(`[viasual3] ${nm} loaded: ${n}`); emit('catalog', nm); });
+    }
+    console.log(`[viasual3] boot ok — ${D.N} stars, load ${D.loadMs.toFixed(0)} ms`);
   } catch (err) {
     prog.innerHTML = `<span style="color:#e05252">failed to load: ${err.message}</span>`;
     console.error(err);

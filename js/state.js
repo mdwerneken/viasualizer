@@ -1,14 +1,15 @@
-// Central state + pub/sub + shareable URL hash + saved fields (shared with v1 via
+// Central state + pub/sub + shareable URL hash + saved fields (shared with v1/v2 via
 // the same localStorage key and JSON format) + field history + animated field slides.
 import { D } from './data.js';
 import { convPoint, unitVector1, lonlatOf, matTVec } from './compute.js';
 
 export const LS_KEY = 'viasual_saved_fields';
+export const LS_PREFS = 'viasual3_prefs';
 
 export const state = {
   lam0: 0, bet0: 0,            // field center, Sgr frame (set from meta on boot)
   fov: 1.0,                    // field DIAMETER [deg] — continuous 1..5 (snaps 1/2/3/5)
-  mode: 'dist',                // dist | mag | dens | hemi | stream
+  mode: 'dist',                // dist | mag | hemi | stream
   glo: 11.0, ghi: 20.0,        // mag limit window
   hide: true,                  // hide sources outside mag limit
   streamSel: null,             // selected stream name or null
@@ -19,19 +20,32 @@ export const state = {
   hlGC: true,                  // highlight the selected GC
   via: false,                  // show only Via streams
   viaDwarfs: false,            // dwarfs: only those < 300 kpc (placeholder Via list)
-  himap: 'total',              // total | hvc | overlay
+  himap: 'total',              // background: total | hvc | overlay | dust
   hiSphere: false,             // HI shell in 3D
   coneKepler: true, coneM31: false, coneM82: false, // survey cones (independent)
   hemiCones: false,            // MMT/Magellan visibility cones
-  theme: 'dark',               // 3D view background: dark | light
+  theme: 'dark',               // whole-app theme: dark | light
   boxOn: false,                // 100 kpc reference box
   diskOn: true,                // galactic disk
   streamsOn: true, qsoOn: true, gcOn: true, dgOn: true, memOn: true, haloOn: false,
+  kgOn: false, bhbOn: false, kepOn: false, mem2On: false,   // v3 catalogs (default off)
   cloudsOn: false, cloudFilter: 'all',   // all | compact | vhvc
-  pairKind: 'dd',              // dd | dv | nn | dnn
+  cloudHipass: true, cloudAlfalfa: true, cloudGass: true,
+  cloudColor: 'none',          // none | vlsr | vgsr — color clouds by velocity
+  viaOn: true,                 // Via planned pointings on the sky maps / finder
+  viaSvy: { sps: true, dgs: true, cgs: true, krs: false, rbs: true, tfs: false },
+  via3d: false,                // Via pointings as a shell of dots in 3D
+  sightOn: false,              // literature sightlines (Bish+19)
+  dust3dOn: false,             // Edenhofer+24 local 3D dust cloud in the 3D view
   connect: false,              // NN match lines on finder
-  tab: 'field',                // dossier tab: field | sky | halo
+  tab: 'field',                // dossier tab: field | sky
   lock: null,                  // {kind:'stream'|'gc'|'dwarf'|'cone', id, name, dist} go-to lock
+  sidebar: true,               // left control sidebar open
+  // field lists (v3)
+  listSrc: [],                 // active list sources, e.g. ['via:sps','via:dgs'] or ['top'] or ['saved']
+  listSort: 'order',           // order | rungs | targets | qso | nhi | dec
+  listPos: -1,                 // index into the active list, -1 = none
+  listOnlyVisible: false,      // filter: visible from at least one site
 };
 
 const subs = new Map();   // topic -> Set<fn>
@@ -51,6 +65,28 @@ export function set(patch, topic) {
   Object.assign(state, patch);
   emit(topic ?? 'ui');
   scheduleHash();
+  savePrefs();
+}
+
+// ---- persisted preferences (theme, sidebar, layer toggles) --------------------------
+const PREF_KEYS = ['theme', 'sidebar', 'viaSvy', 'viaOn', 'himap', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
+  'cloudsOn', 'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'sightOn', 'diskOn', 'listSort'];
+let prefTimer = null;
+function savePrefs() {
+  clearTimeout(prefTimer);
+  prefTimer = setTimeout(() => {
+    try {
+      const p = {};
+      for (const k of PREF_KEYS) p[k] = state[k];
+      localStorage.setItem(LS_PREFS, JSON.stringify(p));
+    } catch {}
+  }, 300);
+}
+export function loadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem(LS_PREFS) || '{}');
+    for (const k of PREF_KEYS) if (k in p) state[k] = (k === 'viaSvy') ? { ...state.viaSvy, ...p[k] } : p[k];
+  } catch {}
 }
 
 // ---- field history (back/forward through fields we actually stopped at) -----------
@@ -67,19 +103,20 @@ function pushHistory() {
   hist.pos = hist.list.length - 1;
   emit('history');
 }
-export function histState() { return { back: hist.pos > 0, fwd: hist.pos < hist.list.length - 1 }; }
+export function histState() { return { back: hist.pos > 0, fwd: hist.pos < hist.list.length - 1, list: hist.list, pos: hist.pos }; }
 export function histSeed() { pushHistory(); }   // record the boot field so "back" works
 export function histGo(step) {
   const p = hist.pos + step;
-  if (p < 0 || p >= hist.list.length) return;
+  if (p < 0 || p >= hist.list.length) return false;
   hist.pos = p;
   const f = hist.list[p];
   hist.navigating = true;
   state.fov = f.fov;
   state.lock = f.lock ?? null;
-  setField(f.lam, f.bet, { keepLock: true });
+  slideField(f.lam, f.bet, { keepLock: true, fromHistory: true });
   hist.navigating = false;
   emit('history');
+  return true;
 }
 
 // swap the go-to lock; if the outgoing lock changed the FOV (survey cones), restore it
@@ -104,7 +141,11 @@ export function setField(lam, bet, opts = {}) {
   }
   emit('field', opts);
   scheduleHash();
-  if (!opts.live) pushHistory();
+  if (!opts.live) {
+    if (opts.fromHistory) { hist.navigating = true; }
+    pushHistory();
+    hist.navigating = false;
+  }
 }
 
 // ---- animated field slide (damped ease-in-out along the great circle) -------------
@@ -157,7 +198,7 @@ export function icrsField() {
 const HASH_KEYS = ['fov', 'mode', 'ghi', 'himap', 'tab'];
 const FLAG_KEYS = ['streamsOn', 'qsoOn', 'gcOn', 'dgOn', 'memOn', 'haloOn', 'cloudsOn',
   'hide', 'via', 'viaDwarfs', 'hiSphere', 'coneKepler', 'coneM31', 'coneM82',
-  'hemiCones', 'boxOn', 'diskOn'];
+  'hemiCones', 'boxOn', 'diskOn', 'kgOn', 'bhbOn', 'kepOn', 'mem2On', 'viaOn', 'sightOn', 'dust3dOn', 'via3d'];
 let hashTimer = null, applyingHash = false;
 
 function scheduleHash() {
@@ -173,6 +214,7 @@ function scheduleHash() {
     if (flags.length) p.set('flip', flags.join(','));
     if (state.theme !== 'dark') p.set('theme', state.theme);
     if (state.streamSel) p.set('stream', state.streamSel);
+    if (state.listSrc.length) p.set('list', state.listSrc.join(','));
     history.replaceState(null, '', '#' + p.toString());
   }, 250);
 }
@@ -197,6 +239,7 @@ export function initHash() {
     if (p.has('tab')) state.tab = p.get('tab');
     if (p.has('theme')) state.theme = p.get('theme');
     if (p.has('stream')) state.streamSel = p.get('stream');
+    if (p.has('list')) state.listSrc = p.get('list').split(',').filter(Boolean);
     for (const k of (p.get('flip') ?? '').split(',').filter(Boolean)) {
       if (k in defaultsFlags) state[k] = !defaultsFlags[k];
     }
@@ -204,11 +247,11 @@ export function initHash() {
   } finally { applyingHash = false; }
 }
 
-// ---- saved fields (v1-compatible) -------------------------------------------------
+// ---- saved fields (v1/v2-compatible) --------------------------------------------
 export function loadSaved() {
   try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; }
 }
-export function storeSaved(list) { localStorage.setItem(LS_KEY, JSON.stringify(list)); }
+export function storeSaved(list) { localStorage.setItem(LS_KEY, JSON.stringify(list)); emit('saved'); }
 export function saveCurrentField(label = '') {
   const list = loadSaved();
   const [l, b] = galField();

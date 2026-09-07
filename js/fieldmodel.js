@@ -1,33 +1,32 @@
 // Field model — one computation per field/state change; every panel reads this.
 // All collections FOLLOW VISIBILITY (Matt, 8-19-26): a hidden catalog contributes
 // nothing to the ladder, fiber budget, histograms or stats.
-import { D, quaiaInField, sortedCatInField } from './data.js';
+// v3: computeField() is a pure function of (lam, bet, fov) + the visibility state, so
+// field LISTS can be scored in the background with exactly the live rules.
+import { D, quaiaInField, sortedCatInField, bgGridFor } from './data.js';
 import { state, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { ladder } from './rungs.js';
 
 export const F = {};        // current field results
 
-export function fieldStars() {
+// source kinds (finder glyphs, histograms, fiber budget)
+export const KIND = { STAR: 0, QSO: 1, MEM: 2, HALO: 3, KG: 4, BHB: 5, KEP: 6, MEM2: 7 };
+
+const magOk = (g) => !state.hide || !Number.isFinite(g) || (g >= state.glo && g <= state.ghi);
+
+export function fieldStars(lam0, bet0, r) {
   if (!state.streamsOn) return [];
-  const r = state.fov / 2;
-  let idx = C.fieldIndices(state.lam0, state.bet0, D.UG_SGR, r);
+  let idx = C.fieldIndices(lam0, bet0, D.UG_SGR, r);
   if (state.via) idx = idx.filter(i => D.viaMask[i]);
   if (state.hide) idx = idx.filter(i => D.s_G[i] >= state.glo && D.s_G[i] <= state.ghi);
   return idx;
 }
 
-export function qsoInField() {
-  if (!D.QSO || !state.qsoOn) return [];
-  let q = quaiaInField(state.lam0, state.bet0, state.fov / 2);
-  if (state.hide) q = q.filter(i => D.QSO.G[i] >= state.glo && D.QSO.G[i] <= state.ghi);
-  return q;
-}
-
-export function haloInField() {
-  if (!D.HALO || !state.haloOn) return [];
-  let h = sortedCatInField(D.HALO, state.lam0, state.bet0, state.fov / 2);
-  if (state.hide) h = h.filter(i => D.HALO.G[i] >= state.glo && D.HALO.G[i] <= state.ghi);
+function bigCatInField(cat, onFlag, lam0, bet0, r) {
+  if (!cat || !onFlag) return [];
+  let h = sortedCatInField(cat, lam0, bet0, r);
+  if (state.hide) h = h.filter(i => cat.G[i] >= state.glo && cat.G[i] <= state.ghi);
   return h;
 }
 
@@ -36,11 +35,13 @@ export function dwarfViaOk(i) {
   return !state.viaDwarfs || (Number.isFinite(D.DWF.dist[i]) && D.DWF.dist[i] < 300);
 }
 
-// active cloud indices under the current filter (VHVC = |vLSR| >= 200 km/s)
+// active cloud indices under the current filters
 export function activeClouds() {
   if (!D.CLOUDS || !state.cloudsOn) return [];
   const cl = D.CLOUDS, out = [];
+  const srcOn = [state.cloudHipass, state.cloudAlfalfa, state.cloudGass];
   for (let i = 0; i < cl.name.length; i++) {
+    if (!srcOn[cl.src[i]]) continue;
     if (state.cloudFilter === 'compact' && cl.type[i] !== 'CHVC' && cl.type[i] !== 'UCHVC') continue;
     if (state.cloudFilter === 'vhvc' && !(Math.abs(cl.vlsr[i]) >= 200)) continue;
     out.push(i);
@@ -48,114 +49,150 @@ export function activeClouds() {
   return out;
 }
 
-export function memInField() {
+export function memInField(lam0, bet0, r) {
   // members ride on the dwarfs checkbox AND their own sub-checkbox
   if (!D.MEM || !state.dgOn || !state.memOn) return [];
-  let m = C.fieldIndices(state.lam0, state.bet0, D.MEM.UG, state.fov / 2);
+  let m = C.fieldIndices(lam0, bet0, D.MEM.UG, r);
   if (state.viaDwarfs) m = m.filter(i => Number.isFinite(D.MEM.dist[i]) && D.MEM.dist[i] < 300);
-  if (state.hide) {
-    m = m.filter(i => !Number.isFinite(D.MEM.G[i]) ||
-      (D.MEM.G[i] >= state.glo && D.MEM.G[i] <= state.ghi));
-  }
+  if (state.hide) m = m.filter(i => magOk(D.MEM.G[i]));
   return m;
 }
 
-// combined source table (stars + members + halo RRL + quasars)
-function buildSources(idx, mm, hh, qq) {
-  const n = idx.length + mm.length + hh.length + qq.length;
-  const lam = new Float64Array(n), bet = new Float64Array(n), dist = new Float64Array(n);
-  const G = new Float64Array(n), Vr = new Float64Array(n);
-  const kind = new Uint8Array(n);    // 0 star, 1 qso, 2 member, 3 halo
-  let k = 0;
-  for (const i of idx) {
-    lam[k] = D.s_lam[i]; bet[k] = D.s_bet[i]; dist[k] = D.s_dist_use[i];
-    G[k] = D.s_G[i]; Vr[k] = D.s_Vr[i]; kind[k] = 0; k++;
-  }
-  for (const i of mm) {
-    lam[k] = D.MEM.lam[i]; bet[k] = D.MEM.bet[i]; dist[k] = D.MEM.dist[i];
-    G[k] = D.MEM.G[i]; Vr[k] = NaN; kind[k] = 2; k++;
-  }
-  for (const i of hh) {
-    lam[k] = D.HALO.lam[i]; bet[k] = D.HALO.bet[i]; dist[k] = D.HALO.dist[i];
-    G[k] = D.HALO.G[i]; Vr[k] = NaN; kind[k] = 3; k++;
-  }
-  for (const i of qq) {
-    lam[k] = D.QSO.lam[i]; bet[k] = D.QSO.bet[i]; dist[k] = Infinity;
-    G[k] = D.QSO.G[i]; Vr[k] = NaN; kind[k] = 1; k++;
-  }
-  return { lam, bet, dist, G, Vr, kind, n };
+export function mem2InField(lam0, bet0, r) {
+  if (!D.MEM2 || !state.dgOn || !state.mem2On) return [];
+  let m = sortedCatInField(D.MEM2, lam0, bet0, r);
+  if (state.viaDwarfs) m = m.filter(i => Number.isFinite(D.MEM2.dist[i]) && D.MEM2.dist[i] < 300);
+  if (state.hide) m = m.filter(i => magOk(D.MEM2.G[i]));
+  return m;
 }
 
-export function recompute(opts = {}) {
-  const t0 = performance.now();
-  const [l0, b0] = galField();
-  F.l0 = l0; F.b0 = b0;
-  const vIcrs = C.matTVec(D.M_SGR, C.unitVector1(state.lam0, state.bet0));
+// combined source table (all backlight kinds)
+function buildSources(parts) {
+  let n = 0;
+  for (const p of parts) n += p.idx.length;
+  const lam = new Float64Array(n), bet = new Float64Array(n), dist = new Float64Array(n);
+  const G = new Float64Array(n), Vr = new Float64Array(n);
+  const kind = new Uint8Array(n), ref = new Int32Array(n);
+  let k = 0;
+  for (const p of parts) {
+    const c = p.cat;
+    for (const i of p.idx) {
+      lam[k] = c.lam[i]; bet[k] = c.bet[i];
+      dist[k] = p.kind === KIND.QSO ? Infinity : (p.dist ? p.dist[i] : c.dist[i]);
+      G[k] = c.G[i]; Vr[k] = p.vr ? p.vr[i] : NaN; kind[k] = p.kind; ref[k] = i; k++;
+    }
+  }
+  return { lam, bet, dist, G, Vr, kind, ref, n };
+}
+
+// pure field computation: everything a panel or a list score needs.
+// opts.light skips the O(n^2) nearest neighbours and cloud overlap (list scoring).
+export function computeField(lam0, bet0, fov, opts = {}) {
+  const r = fov / 2;
+  const R = {};
+  const [l0, b0] = C.convPoint(D.M_SGR, D.M_GAL, lam0, bet0);
+  R.l0 = l0; R.b0 = b0;
+  const vIcrs = C.matTVec(D.M_SGR, C.unitVector1(lam0, bet0));
   const [ra, dec] = C.lonlatOf(vIcrs);
-  F.ra = (ra + 360) % 360; F.dec = dec;
-  F.vMMT = C.visibleFrom(D.SITES['MMT (Arizona)'], dec, D.ALT_MIN);
-  F.vMag = C.visibleFrom(D.SITES['Magellan (Chile)'], dec, D.ALT_MIN);
+  R.ra = (ra + 360) % 360; R.dec = dec;
+  R.vMMT = C.visibleFrom(D.SITES['MMT (Arizona)'], dec, D.ALT_MIN);
+  R.vMag = C.visibleFrom(D.SITES['Magellan (Chile)'], dec, D.ALT_MIN);
 
-  F.idx = fieldStars();
-  F.mm = memInField();
-  F.hh = haloInField();
-  F.qq = qsoInField();
-  F.gc = state.gcOn ? C.fieldIndices(state.lam0, state.bet0, D.GCC.UG, state.fov / 2) : [];
-  F.clouds = activeClouds();
-  // clouds intersecting the field: center within (field radius + cloud radius)
-  F.cloudsInField = !F.clouds.length ? [] : (() => {
-    const cl = D.CLOUDS, out = [];
-    for (const i of F.clouds) {
-      const sep = C.angSepAm(state.lam0, state.bet0, cl.lam[i], cl.bet[i]) / 60;
-      if (sep <= state.fov / 2 + cl.radDeg[i]) out.push(i);
-    }
-    return out;
-  })();
-  F.dw = state.dgOn
-    ? C.fieldIndices(state.lam0, state.bet0, D.DWF.UG, state.fov / 2).filter(dwarfViaOk)
-    : [];
-  F.src = buildSources(F.idx, F.mm, F.hh, F.qq);
+  R.idx = fieldStars(lam0, bet0, r);
+  R.mm = memInField(lam0, bet0, r);
+  R.mm2 = mem2InField(lam0, bet0, r);
+  R.hh = bigCatInField(D.HALO, state.haloOn, lam0, bet0, r);
+  R.kg = bigCatInField(D.KG, state.kgOn, lam0, bet0, r);
+  R.bhb = bigCatInField(D.BHB, state.bhbOn, lam0, bet0, r);
+  R.kep = bigCatInField(D.KEP, state.kepOn, lam0, bet0, r);
+  R.qq = (D.QSO && state.qsoOn) ? bigCatInField(D.QSO, true, lam0, bet0, r) : [];
+  R.gc = state.gcOn ? C.fieldIndices(lam0, bet0, D.GCC.UG, r) : [];
+  R.dw = state.dgOn ? C.fieldIndices(lam0, bet0, D.DWF.UG, r).filter(dwarfViaOk) : [];
+  // Via planned pointings whose 1-degree footprint overlaps this field
+  R.via = [];
+  if (D.VIA && state.viaOn) {
+    const cand = C.fieldIndices(lam0, bet0, D.VIA.UG, r + 0.5);
+    for (const i of cand) if (state.viaSvy[D.VIA.svy[i]]) R.via.push(i);
+  }
+  R.sight = (D.SIGHT?.bish19 && state.sightOn) ? C.fieldIndices(lam0, bet0, D.SIGHT.bish19.UG, r) : [];
 
-  // NN over all sources: exact brute force up to 3000 (matches v1 star-for-star),
-  // gnomonic grid NN beyond that (large 3-5 degree fields)
-  if (F.src.n >= 2) {
-    if (F.src.n <= 3000) {
-      const uv = C.unitVectors(F.src.lam, F.src.bet);
-      F.nn = C.nearestNeighbors(uv);
-    } else {
-      const [xi, eta] = C.gnomonic(F.src.lam, F.src.bet, state.lam0, state.bet0);
-      F.nn = C.nearestNeighborsGrid(xi, eta);
-    }
-  } else F.nn = null;
+  R.src = buildSources([
+    { cat: D, kind: KIND.STAR, idx: R.idx, dist: D.s_dist_use, vr: D.s_Vr, },
+    { cat: D.MEM, kind: KIND.MEM, idx: R.mm },
+    { cat: D.MEM2 ?? { lam: [], bet: [], G: [], dist: [] }, kind: KIND.MEM2, idx: R.mm2 },
+    { cat: D.HALO ?? {}, kind: KIND.HALO, idx: R.hh },
+    { cat: D.KG ?? {}, kind: KIND.KG, idx: R.kg },
+    { cat: D.BHB ?? {}, kind: KIND.BHB, idx: R.bhb },
+    { cat: D.KEP ?? {}, kind: KIND.KEP, idx: R.kep },
+    { cat: D.QSO ?? {}, kind: KIND.QSO, idx: R.qq },
+  ].map(p => (p.kind === KIND.STAR ? { ...p, cat: { lam: D.s_lam, bet: D.s_bet, G: D.s_G, dist: D.s_dist_use } } : p)));
 
-  // HI stats (linear grid by active map)
+  if (!opts.light) {
+    R.clouds = activeClouds();
+    R.cloudsInField = !R.clouds.length ? [] : (() => {
+      const cl = D.CLOUDS, out = [];
+      for (const i of R.clouds) {
+        const sep = C.angSepAm(lam0, bet0, cl.lam[i], cl.bet[i]) / 60;
+        if (sep <= r + cl.radDeg[i]) out.push(i);
+      }
+      return out;
+    })();
+    // NN over all sources: exact brute force up to 3000, gnomonic grid NN beyond
+    if (R.src.n >= 2) {
+      if (R.src.n <= 3000) R.nn = C.nearestNeighbors(C.unitVectors(R.src.lam, R.src.bet));
+      else {
+        const [xi, eta] = C.gnomonic(R.src.lam, R.src.bet, lam0, bet0);
+        R.nn = C.nearestNeighborsGrid(xi, eta);
+      }
+    } else R.nn = null;
+  } else { R.clouds = []; R.cloudsInField = []; R.nn = null; }
+
+  // HI stats (linear grid by active map) + dust
   const lin = state.himap === 'hvc' && D.HI_LIN_HVC ? D.HI_LIN_HVC : D.HI_LIN_TOTAL;
-  F.hi = C.hiStatsInField(lin, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, state.fov / 2);
+  R.hi = C.hiStatsInField(lin, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r);
+  R.hiTotal = (state.himap === 'hvc') ? C.hiStatsInField(D.HI_LIN_TOTAL, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r) : R.hi;
+  R.ebv = D.DUST ? C.gridMeanInField(D.DUST.LOG_EBV, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r, true) : null;
+  R.e3d = (D.DUST3D && state.himap?.startsWith('e'))
+    ? C.gridMeanInField(bgGridFor(state.himap).gal, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r, true) : null;
 
   // ladder + fiber budget (both follow visibility)
-  F.ladder = ladder({
-    idx: F.idx, mm: F.mm, hh: F.hh, gc: F.gc, dw: F.dw,
-    nQso: F.qq.length, gLim: state.ghi,
+  const tracers = [];
+  if (R.hh.length) tracers.push({ cat: D.HALO, idx: R.hh, kind: 'halo', label: 'halo RRL' });
+  if (R.kg.length) tracers.push({ cat: D.KG, idx: R.kg, kind: 'kg', label: 'K giants' });
+  if (R.bhb.length) tracers.push({ cat: D.BHB, idx: R.bhb, kind: 'bhb', label: 'BHB' });
+  R.ladder = ladder({
+    idx: R.idx, mm: R.mm, mm2: R.mm2, gc: R.gc, dw: R.dw, tracers,
+    nQso: R.qq.length, gLim: state.ghi,
   });
-  const nTargets = F.idx.length + F.mm.length + F.hh.length + F.qq.length;
-  F.fibers = {
+  const nTargets = R.src.n;
+  R.fibers = {
     targets: nTargets,
-    stars: F.idx.length, members: F.mm.length, halo: F.hh.length, qsos: F.qq.length,
+    stars: R.idx.length, members: R.mm.length + R.mm2.length, halo: R.hh.length,
+    kg: R.kg.length, bhb: R.bhb.length, kep: R.kep.length, qsos: R.qq.length,
     positioners: 576, science: 540, boombox: 36,
     spare: Math.max(0, 540 - nTargets),
     over: Math.max(0, nTargets - 540),
   };
   // per-stream composition
   const comp = new Map();
-  for (const i of F.idx) {
+  for (const i of R.idx) {
     const nm = D.streamName(i);
     comp.set(nm, (comp.get(nm) ?? 0) + 1);
   }
-  F.comp = [...comp.entries()].sort((a, b) => b[1] - a[1]);
-  // dwarf-member composition (per galaxy), for the collapsed dwarf summary line
+  R.comp = [...comp.entries()].sort((a, b) => b[1] - a[1]);
+  // dwarf-member composition (per galaxy), both member catalogs
   const mcomp = new Map();
-  for (const i of F.mm) mcomp.set(D.MEM.name[i], (mcomp.get(D.MEM.name[i]) ?? 0) + 1);
-  F.memComp = mcomp;
+  for (const i of R.mm) mcomp.set(D.MEM.name[i], (mcomp.get(D.MEM.name[i]) ?? 0) + 1);
+  for (const i of R.mm2) mcomp.set(D.MEM2.name[i], (mcomp.get(D.MEM2.name[i]) ?? 0) + 1);
+  R.memComp = mcomp;
+  return R;
+}
+
+export function recompute(opts = {}) {
+  const t0 = performance.now();
+  const R = computeField(state.lam0, state.bet0, state.fov, opts.live ? { } : {});
+  for (const k of Object.keys(F)) delete F[k];
+  Object.assign(F, R);
   F.computeMs = performance.now() - t0;
   emit('fieldmodel', opts);
 }
@@ -163,7 +200,6 @@ export function recompute(opts = {}) {
 export function initFieldModel() {
   on('field', (opts) => recompute(opts ?? {}));
   on('ui', () => recompute({}));
-  on('quaia', () => recompute({}));
-  on('halo', () => recompute({}));
+  on('catalog', () => recompute({}));      // any lazy catalog arrived
   recompute({});
 }

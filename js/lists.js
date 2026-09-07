@@ -1,0 +1,210 @@
+// Field lists (v3): one registry for every browsable set of fields — Via survey plans
+// (per survey), the precomputed promising-field shortlists, saved fields and the visit
+// history — plus background SCORING of a list with the live field rules (visibility,
+// G limit, FOV) so lists can be sorted by rungs / targets / quasars / HI / dec.
+import { D } from './data.js';
+import { state, set, on, emit, loadSaved, histState, slideField, replaceLock } from './state.js';
+import { computeField } from './fieldmodel.js';
+import * as C from './compute.js';
+
+// ---- sources -----------------------------------------------------------------------
+// a source = { id, title, group, items: () => [{lam, bet, l, b, fov, label, sub, meta}] }
+export const SOURCES = [];
+
+function viaItems(svy) {
+  const V = D.VIA, out = [];
+  if (!V) return out;
+  for (let i = 0; i < V.svy.length; i++) {
+    if (V.svy[i] !== svy) continue;
+    const nm = V.name[i] || `${svy.toUpperCase()} tile ${V.tile[i]}`;
+    out.push({
+      lam: V.lam[i], bet: V.bet[i], l: V.l[i], b: V.b[i], fov: 1,
+      label: nm, sub: V.sub[i], svy, ref: i,
+      meta: `${V.surveys[svy]} · ${V.sub[i] ? V.sub[i] + ' · ' : ''}${V.nvis[i]} visit${V.nvis[i] === 1 ? '' : 's'}` +
+        (Number.isFinite(V.pri[i]) && V.pri[i] > 0 ? ` · priority ${V.pri[i]}` : ''),
+    });
+  }
+  return out;
+}
+
+function candGrid(fov, ghi) {
+  const pairs = new Map();
+  for (const c of D.CANDIDATES) pairs.set(`${c.fov}|${c.glim ?? 20}`, { fov: c.fov, glim: c.glim ?? 20 });
+  let best = null, bd = Infinity;
+  for (const p of pairs.values()) {
+    const d = Math.abs(p.fov - fov) * 2 + Math.abs(p.glim - ghi);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+function topItems(sec) {
+  const best = candGrid(state.fov, state.ghi);
+  if (!best) return [];
+  return D.CANDIDATES.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim && (c.sec ?? 'top') === sec)
+    .map(c => ({
+      lam: c.lam, bet: c.bet, l: c.l, b: c.b, fov: c.fov, ref: D.CANDIDATES.indexOf(c),
+      label: `#${c.rank} · ${c.combo}`, sub: `G ≤ ${best.glim}`,
+      meta: `${c.n_rungs} rungs (scan) · ${c.site} · log N(HI) ${c.log_nhi}`,
+      scan: { rungs: c.n_rungs, nhi: c.log_nhi },
+    }));
+}
+function savedItems() {
+  return loadSaved().map((f, i) => ({
+    lam: f.lam, bet: f.bet, l: f.l, b: f.b, fov: f.fov ?? 1, ref: i,
+    label: f.obj || f.label || `ℓ ${f.l.toFixed(1)}, b ${f.b.toFixed(1)}`, sub: `${(f.fov ?? 1)}°`,
+    meta: `saved field${f.ghi ? ` · G ≤ ${f.ghi}` : ''}`,
+  }));
+}
+function historyItems() {
+  const h = histState();
+  return h.list.map((f, i) => {
+    const [l, b] = C.convPoint(D.M_SGR, D.M_GAL, f.lam, f.bet);
+    return { lam: f.lam, bet: f.bet, l, b, fov: f.fov, ref: i,
+      label: f.lock?.name || `ℓ ${l.toFixed(1)}, b ${b.toFixed(1)}`, sub: `${f.fov}°`, meta: 'visited' };
+  }).reverse();
+}
+
+export function initLists() {
+  SOURCES.length = 0;
+  if (D.VIA) {
+    for (const svy of D.VIA.SVY_KEYS) {
+      SOURCES.push({ id: `via:${svy}`, group: 'Via survey plan', svy,
+        title: `${D.VIA.surveys[svy]} (${svy.toUpperCase()})`, items: () => viaItems(svy) });
+    }
+  }
+  SOURCES.push({ id: 'top', group: 'Promising fields (scan grid)', title: 'Top 20 by distance rungs', items: () => topItems('top') });
+  SOURCES.push({ id: 'topvia', group: 'Promising fields (scan grid)', title: 'Best with a Via stream', items: () => topItems('via') });
+  SOURCES.push({ id: 'saved', group: 'Mine', title: 'Saved fields', items: savedItems });
+  SOURCES.push({ id: 'history', group: 'Mine', title: 'Recently visited', items: historyItems });
+  on('saved', () => { if (state.listSrc.includes('saved')) rebuild(); });
+  on('history', () => { if (state.listSrc.includes('history')) rebuild(false); });
+  on('ui', () => { if (state.listSrc.some(s => s.startsWith('top'))) rebuild(); invalidateScores(); });
+  on('catalog', () => invalidateScores());
+  rebuild();
+}
+
+// ---- the active list ------------------------------------------------------------------
+export const LIST = { items: [], order: [], key: '', scoring: null, scored: 0 };
+let scoreCache = new Map();     // `${lam}|${bet}|${fov}` -> score
+
+export function sourceById(id) { return SOURCES.find(s => s.id === id); }
+
+export function rebuild(resetPos = true) {
+  const items = [];
+  for (const id of state.listSrc) {
+    const s = sourceById(id);
+    if (s) for (const it of s.items()) items.push({ ...it, src: id });
+  }
+  LIST.items = items;
+  for (const it of items) it.score = scoreCache.get(scoreKey(it)) ?? null;
+  applySort();
+  if (resetPos) {
+    // keep the position on the same field if it still exists
+    const cur = state.listPos >= 0 ? LIST.order[state.listPos] : null;
+    state.listPos = cur ? Math.max(-1, LIST.order.indexOf(cur)) : -1;
+  }
+  emit('list');
+  if (items.length && state.listSort !== 'order' && state.listSort !== 'dec') startScoring();
+}
+
+function scoreKey(it) { return `${it.lam.toFixed(4)}|${it.bet.toFixed(4)}|${it.fov}`; }
+
+export function applySort() {
+  let order = LIST.items.slice();
+  if (state.listOnlyVisible) order = order.filter(it => (it.score ? (it.score.vMMT || it.score.vMag) : true));
+  const sk = state.listSort;
+  const val = it => {
+    const s = it.score;
+    if (sk === 'rungs') return s ? s.rungs + s.tie * 1e-3 : (it.scan?.rungs ?? -1);
+    if (sk === 'targets') return s ? s.targets : -1;
+    if (sk === 'qso') return s ? s.qso : -1;
+    if (sk === 'nhi') return s ? -s.nhi : (it.scan ? -it.scan.nhi : -99);
+    if (sk === 'dec') return -Math.abs(decOf(it));
+    return 0;
+  };
+  if (sk !== 'order') {
+    const idx = order.map((it, i) => [it, i]);
+    idx.sort((a, b) => (val(b[0]) - val(a[0])) || (a[1] - b[1]));
+    order = idx.map(x => x[0]);
+  }
+  LIST.order = order;
+}
+
+function decOf(it) {
+  const [, dec] = C.lonlatOf(C.matTVec(D.M_SGR, C.unitVector1(it.lam, it.bet)));
+  return dec;
+}
+
+// ---- background scoring (idle chunks; same rules as the live field) -----------------
+let scoreGen = 0;
+export function invalidateScores() {
+  scoreCache = new Map();
+  for (const it of LIST.items) it.score = null;
+  LIST.scored = 0;
+  scoreGen++;                                  // a running pass restarts itself
+  if (LIST.items.length && state.listSort !== 'order' && state.listSort !== 'dec') startScoring();
+  else emit('list');
+}
+
+export function startScoring() {
+  if (LIST.scoring) return;
+  const todo = LIST.items.filter(it => !it.score);
+  if (!todo.length) { LIST.scored = LIST.items.length; emit('list'); return; }
+  LIST.scoring = { total: LIST.items.length };
+  const gen = scoreGen;
+  let k = 0;
+  const step = () => {
+    if (gen !== scoreGen) { LIST.scoring = null; startScoring(); return; }
+    const t0 = performance.now();
+    while (k < todo.length && performance.now() - t0 < 24) {
+      const it = todo[k++];
+      const R = computeField(it.lam, it.bet, it.fov, { light: true });
+      it.score = {
+        rungs: R.ladder.nRungs, tie: R.ladder.tie, targets: R.fibers.targets, qso: R.qq.length,
+        nhi: R.hi ? Math.log10(R.hi.mean) : NaN, vMMT: R.vMMT, vMag: R.vMag, stars: R.idx.length,
+        ladder: R.ladder.groups.map(g => g[0].dist).concat(R.ladder.qsoRung ? [Infinity] : []),
+      };
+      scoreCache.set(scoreKey(it), it.score);
+    }
+    LIST.scored = LIST.items.length - (todo.length - k);
+    if (k < todo.length) { emit('list-progress'); nextTick(step); }
+    else { LIST.scoring = null; applySort(); emit('list'); }
+  };
+  nextTick(step);
+}
+
+// MessageChannel scheduling: unlike setTimeout it is not throttled to 1 Hz in a
+// background tab, so a list still finishes ranking while the user looks elsewhere
+const _mc = new MessageChannel();
+const _tickQueue = [];
+_mc.port1.onmessage = () => { const fn = _tickQueue.shift(); if (fn) fn(); };
+function nextTick(fn) { _tickQueue.push(fn); _mc.port2.postMessage(0); }
+
+// ---- navigation ---------------------------------------------------------------------
+export function currentItem() { return state.listPos >= 0 ? LIST.order[state.listPos] : null; }
+
+export function gotoIndex(i, opts = {}) {
+  if (!LIST.order.length) return;
+  i = ((i % LIST.order.length) + LIST.order.length) % LIST.order.length;
+  state.listPos = i;
+  const it = LIST.order[i];
+  if (Math.abs(state.fov - it.fov) > 1e-3) { state.fov = it.fov; emit('ui'); }
+  replaceLock({ kind: 'list', id: `${it.src}:${it.ref}`, name: it.label, svy: it.svy });
+  slideField(it.lam, it.bet, { keepLock: true });
+  emit('list');
+}
+export function stepList(d) { if (LIST.order.length) gotoIndex((state.listPos < 0 ? (d > 0 ? -1 : 0) : state.listPos) + d); }
+
+// ---- autoplay -----------------------------------------------------------------------
+let playTimer = null;
+export function isPlaying() { return !!playTimer; }
+export function setPlaying(v, intervalMs = 2200) {
+  if (!v) { clearInterval(playTimer); playTimer = null; emit('list'); return; }
+  if (playTimer) return;
+  stepList(1);
+  playTimer = setInterval(() => stepList(1), intervalMs);
+  emit('list');
+}
+
+// keep listPos in sync when the user leaves the list's field by hand
+on('lock', () => { if (state.lock?.kind !== 'list' && state.listPos >= 0) { state.listPos = -1; emit('list'); } });

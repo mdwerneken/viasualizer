@@ -1,10 +1,10 @@
-// Field targets box (breakdown + fiber budget) + the bottom coordinate bar
-// (Galactic / Sagittarius / Equatorial typed inputs, visibility badges).
+// Field targets box (breakdown + fiber budget + gas/dust + Via plan here) and the bottom
+// coordinate bar (Galactic / Sagittarius / Equatorial typed inputs, visibility badges).
 import { D } from '../data.js';
 import { state, on, emit, setField } from '../state.js';
-import { F } from '../fieldmodel.js';
+import { F, KIND } from '../fieldmodel.js';
 import * as C from '../compute.js';
-import { KIND_COL } from '../colors.js';
+import { KIND_COL, SVY_COL, SVY_SHORT } from '../colors.js';
 
 let statsEl, barEl;
 
@@ -21,20 +21,24 @@ export function initStats(container, bottomBar) {
   statsEl.addEventListener('pointerout', e => {
     if (e.target.closest?.('[data-hl], [data-hl-stream]')) emit('hilite', null);
   });
+  statsEl.addEventListener('click', e => {
+    const v = e.target.closest?.('[data-via]')?.dataset?.via;
+    if (v !== undefined) window.dispatchEvent(new CustomEvent('v3-goto-via', { detail: +v }));
+  });
 }
 
 const f1 = x => x.toFixed(1), f2 = x => x.toFixed(2);
 const red = (n, hl) => `<span class="tcount"${hl !== undefined ? ` data-hl="${hl}"` : ''}>${n}</span>`;
+const plural = (n, s, p) => n === 1 ? s : (p ?? s + 's');
 
 function render() {
-  // --- targets box ---
   const L = [];
-  L.push(`<div class="targets-head">${red(F.fibers.targets)} targets: ` +
-    `<span class="tiny hint">(hover number to highlight)</span></div>`);
+  L.push(`<div class="targets-head">${red(F.fibers.targets)} targets in this field ` +
+    `<span class="tiny hint">(hover a number to highlight)</span></div>`);
   if (F.idx.length) {
     const parts = F.comp.slice(0, 6).map(([nm, c]) =>
-      `${nm} (<span class="tcount" data-hl-stream="${nm}">${c}★</span>)`);
-    L.push(`<div><b>${red(F.idx.length, 0)} stream star${F.idx.length > 1 ? 's' : ''}</b> — ` +
+      `${nm}${D.VIA_SET.has(nm) ? '<span class="tiny"> (Via)</span>' : ''} (<span class="tcount" data-hl-stream="${nm}">${c}★</span>)`);
+    L.push(`<div><b>${red(F.idx.length, KIND.STAR)} stream ${plural(F.idx.length, 'star')}</b> — ` +
       `${parts.join(', ')}${F.comp.length > 6 ? ', …' : ''}</div>`);
   } else if (state.streamsOn) L.push(`<div><b>0 stream stars</b></div>`);
   // dwarfs + their members, collapsed into one line
@@ -52,29 +56,52 @@ function render() {
       const nMem = F.memComp.get(nm);
       return `${nm}${nMem ? ` (${nMem}★)` : ''}${Number.isFinite(dist) ? ` at ${f1(dist)} kpc` : ''}`;
     });
-    L.push(`<div><b>${red(nDw, 'dwarf')} dwarf galax${nDw > 1 ? 'ies' : 'y'}</b>: ${parts.join(', ')}</div>`);
+    L.push(`<div><b>${red(nDw, 'dwarf')} dwarf ${plural(nDw, 'galaxy', 'galaxies')}</b>: ${parts.join(', ')}</div>`);
   }
   if (F.gc.length) {
-    L.push(`<div><b>${red(F.gc.length, 'gc')} globular cluster${F.gc.length > 1 ? 's' : ''}</b>: ` +
+    L.push(`<div><b>${red(F.gc.length, 'gc')} globular ${plural(F.gc.length, 'cluster')}</b>: ` +
       F.gc.slice(0, 4).map(i => `${D.GCC.name[i]} (${f1(D.GCC.dist[i])} kpc)`).join(', ') + `</div>`);
   }
-  if (F.hh?.length) {
+  const rangeLine = (arr, cat, kind, label) => {
+    if (!arr?.length) return;
     let dmin = Infinity, dmax = -Infinity;
-    for (const i of F.hh) { dmin = Math.min(dmin, D.HALO.dist[i]); dmax = Math.max(dmax, D.HALO.dist[i]); }
-    L.push(`<div><b>${red(F.hh.length, 3)} halo RR Lyrae</b> at ${dmin.toFixed(0)}–${dmax.toFixed(0)} kpc</div>`);
-  }
+    for (const i of arr) { dmin = Math.min(dmin, cat.dist[i]); dmax = Math.max(dmax, cat.dist[i]); }
+    L.push(`<div><b>${red(arr.length, kind)} ${label}</b> at ${dmin.toFixed(dmin < 10 ? 1 : 0)}–${dmax.toFixed(dmax < 10 ? 1 : 0)} kpc</div>`);
+  };
+  rangeLine(F.hh, D.HALO, KIND.HALO, plural(F.hh?.length, 'halo RR Lyrae', 'halo RR Lyrae'));
+  rangeLine(F.kg, D.KG, KIND.KG, plural(F.kg.length, 'K giant'));
+  rangeLine(F.bhb, D.BHB, KIND.BHB, plural(F.bhb.length, 'BHB star'));
+  rangeLine(F.kep, D.KEP, KIND.KEP, plural(F.kep.length, 'Kepler-field star'));
   if (D.QSO && state.qsoOn) {
-    L.push(`<div><b>${red(F.qq.length, 1)} quasar${F.qq.length === 1 ? '' : 's'}</b></div>`);
-  } else if (!D.QSO) L.push(`<div><span class="tiny">quasars loading…</span></div>`);
+    L.push(`<div><b>${red(F.qq.length, KIND.QSO)} ${plural(F.qq.length, 'quasar')}</b></div>`);
+  } else if (!D.QSO && state.qsoOn) L.push(`<div><span class="tiny">quasars loading…</span></div>`);
+  L.push(fiberHtml());
+
+  // gas + dust along the sightline
+  const gas = [];
+  if (F.hiTotal) gas.push(`log N(HI) <b>${Math.log10(F.hiTotal.mean).toFixed(2)}</b> mean · ${Math.log10(F.hiTotal.peak).toFixed(2)} peak`);
+  if (state.himap === 'hvc') gas.push(F.hi ? `HVC log N(HI) <b>${Math.log10(F.hi.mean).toFixed(2)}</b>` : 'no HVC gas in field');
+  if (F.ebv) gas.push(`E(B−V) <b>${(10 ** F.ebv.mean).toFixed(3)}</b> mag (SFD, all distances)`);
+  if (F.e3d) gas.push(`ZGR23 E <b>${(10 ** F.e3d.mean).toFixed(3)}</b> within ${{ e300: '300 pc', e600: '600 pc', e1250: '1.25 kpc' }[state.himap]} (Edenhofer+24; A<sub>V</sub> ≈ 2.8 E)`);
   if (state.cloudsOn && F.cloudsInField) {
     if (F.cloudsInField.length) {
       const names = F.cloudsInField.slice(0, 3).map(i =>
         `${D.CLOUDS.name[i]} (v<sub>LSR</sub> ${D.CLOUDS.vlsr[i].toFixed(0)})`);
-      L.push(`<div><b>${F.cloudsInField.length} HVC cloud${F.cloudsInField.length > 1 ? 's' : ''}</b> overlapping: ` +
-        names.join(', ') + (F.cloudsInField.length > 3 ? ', …' : '') + `</div>`);
-    } else L.push(`<div><b>0 HVC clouds</b> overlap the field</div>`);
+      gas.push(`<b>${F.cloudsInField.length} HVC ${plural(F.cloudsInField.length, 'cloud')}</b> overlapping: ` +
+        names.join(', ') + (F.cloudsInField.length > 3 ? ', …' : ''));
+    } else gas.push(`no cataloged HVC clouds overlap the field`);
   }
-  L.push(fiberHtml());
+  if (gas.length) L.push(`<div class="gasline">${gas.join('<br>')}</div>`);
+
+  // Via planned pointings overlapping this field
+  if (D.VIA && state.viaOn) {
+    if (F.via.length) {
+      const V = D.VIA;
+      const items = F.via.slice(0, 6).map(i =>
+        `<span data-via="${i}" style="cursor:pointer" title="jump to this pointing"><span class="svy-dot" style="background:${SVY_COL[V.svy[i]]}"></span>${SVY_SHORT[V.svy[i]] ?? V.svy[i]}${V.sub[i] ? '/' + V.sub[i] : ''}: ${V.name[i] || 'tile ' + V.tile[i]}</span>`);
+      L.push(`<div class="via-here"><b>${F.via.length} planned Via ${plural(F.via.length, 'pointing')}</b> overlap this field — ${items.join(' · ')}${F.via.length > 6 ? ' · …' : ''}</div>`);
+    } else L.push(`<div class="via-here tiny">no planned Via pointing overlaps this field</div>`);
+  }
   statsEl.innerHTML = L.join('');
 
   // --- bottom bar ---
@@ -94,33 +121,30 @@ function render() {
 function fiberHtml() {
   const f = F.fibers;
   const segs = [
-    ['stars', f.stars, KIND_COL[0]],
-    ['dwarf ★', f.members, KIND_COL[2]],
-    ['halo RRL', f.halo ?? 0, KIND_COL[3]],
-    ['QSO', f.qsos, KIND_COL[1]],
+    ['stream stars', f.stars, KIND_COL[KIND.STAR]],
+    ['dwarf members', f.members, KIND_COL[KIND.MEM]],
+    ['halo RRL', f.halo ?? 0, KIND_COL[KIND.HALO]],
+    ['K giants', f.kg ?? 0, KIND_COL[KIND.KG]],
+    ['BHB', f.bhb ?? 0, KIND_COL[KIND.BHB]],
+    ['Kepler stars', f.kep ?? 0, KIND_COL[KIND.KEP]],
+    ['quasars', f.qsos, KIND_COL[KIND.QSO]],
   ].filter(s => s[1] > 0);
   const pct = v => Math.min(100, v / f.science * 100);
   let barHtml = '<div class="fiber-bar">';
-  for (const [nm, v, c] of segs) {
-    barHtml += `<span style="width:${pct(v)}%;background:${c}" title="${nm}: ${v}"></span>`;
-  }
+  for (const [nm, v, c] of segs) barHtml += `<span style="width:${pct(v)}%;background:${c}" title="${nm}: ${v}"></span>`;
   barHtml += '</div>';
   const status = f.over
     ? `<b class="over">${f.over} over</b> the ${f.science} fibers — field is target-rich`
     : `<b>${f.spare}</b> spare fibers for ancillary science`;
   return `<div class="fiber-inline">${barHtml}` +
-    `<div class="fiber-line">Via (1° FOV · ${f.science} fibers) → ${status}</div>` +
-    `</div>`;
+    `<div class="fiber-line">Via (1° FOV · ${f.science} fibers) → ${status}</div></div>`;
 }
 
 function wireInputs() {
   const num = id => parseFloat(document.getElementById(id).value);
   const goGal = () => {
     const l = num('in-l'), b = num('in-b');
-    if (Number.isFinite(l) && Number.isFinite(b)) {
-      const [lam, bet] = C.convPoint(D.M_GAL, D.M_SGR, l, b);
-      setField(lam, bet);
-    }
+    if (Number.isFinite(l) && Number.isFinite(b)) setField(...C.convPoint(D.M_GAL, D.M_SGR, l, b));
   };
   const goSgr = () => {
     const lam = num('in-lam'), bet = num('in-bet');
@@ -129,16 +153,13 @@ function wireInputs() {
   const goEq = () => {
     const ra = num('in-ra'), dec = num('in-dec');
     if (Number.isFinite(ra) && Number.isFinite(dec)) {
-      const v = C.matVec(D.M_SGR, C.unitVector1(ra, dec));
-      const [lam, bet] = C.lonlatOf(v);
+      const [lam, bet] = C.lonlatOf(C.matVec(D.M_SGR, C.unitVector1(ra, dec)));
       setField(lam, bet);
     }
   };
   for (const [id, fn] of [['in-l', goGal], ['in-b', goGal], ['in-lam', goSgr],
     ['in-bet', goSgr], ['in-ra', goEq], ['in-dec', goEq]]) {
-    document.getElementById(id).addEventListener('keydown', e => {
-      if (e.key === 'Enter') fn();
-    });
+    document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') fn(); });
   }
   document.getElementById('copy-link').addEventListener('click', async (e) => {
     try {

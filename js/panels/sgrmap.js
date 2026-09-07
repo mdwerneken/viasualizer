@@ -1,19 +1,21 @@
-// Sgr-frame (Λ–B) strip map — HI background in the Sgr grid, star scatter, objects,
-// draggable field circle, full-screen enlarge with whole-structure hover.
-// Λ runs vertically; y-axis FLIPPED 8-19-26 so dragging up here matches the sky map.
-import { D } from '../data.js';
+// Sgr-frame (Λ–B) strip map — gas/dust background in the Sgr grid, star scatter, objects,
+// Via pointings, clouds, sightlines, draggable field circle, full-screen enlarge with
+// structure hover. Λ runs vertically (−180 at the top) so dragging up matches the sky map.
+import { D, bgGridFor } from '../data.js';
 import { state, setField, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import * as C from '../compute.js';
-import { UI, scales, streamColor } from '../colors.js';
-import { fitCanvas, hexagram, diamond, label } from './canvas2d.js';
+import { UI, scales, streamColor, SVY_COL, SVY_SHORT, bgScale, bgLabel } from '../colors.js';
+import { fitCanvas, hexagram, diamond, label, dot, circleOutline } from './canvas2d.js';
 import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
+import { cloudColor } from './finder.js';
+import { viaHtml } from './allsky.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};
-let hiStretchSgr = {};   // himap -> {v0, v1} used for the background stretch
-let map = { x0: 26, y0: 8, w: 0, h: 0 };   // plot rect
+let hiStretchSgr = {};
+let map = { x0: 26, y0: 8, w: 0, h: 0 };
 let dragging = false;
 let hoverObj = null;
 const BMIN = -30, BMAX = 30, LMIN = -180, LMAX = 180;
@@ -24,10 +26,12 @@ export function initSgrmap(container) {
   cv.className = 'sgrmap-canvas';
   container.appendChild(cv);
   tipEl = document.getElementById('tooltip2d');
-  expander = makeExpandable(container, { onToggle: () => { bgCache = {}; starCache = null; hoverObj = null; draw(); } });
+  const reset = () => { bgCache = {}; starCache = null; hoverObj = null; draw(); };
+  expander = makeExpandable(container, { onToggle: reset, hint: 'click or drag to move the field · hover structures · Esc closes' });
   on('fieldmodel', draw);
+  on('theme', () => { bgCache = {}; starCache = null; hiStretchSgr = {}; draw(); });
   new ResizeObserver(() => { bgCache = {}; starCache = null; draw(); }).observe(container);
-  cv.addEventListener('pointerdown', (e) => { dragging = true; try { cv.setPointerCapture(e.pointerId); } catch {} moveTo(e, true); });
+  cv.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; dragging = true; try { cv.setPointerCapture(e.pointerId); } catch {} moveTo(e, true); });
   cv.addEventListener('pointermove', (e) => {
     if (dragging) { moveTo(e, true); return; }
     if (expander.isExpanded()) hoverStructure(e);
@@ -37,47 +41,44 @@ export function initSgrmap(container) {
     if (hoverObj) { hoverObj = null; draw(); }
     tipEl.style.display = 'none';
   });
+  cv.addEventListener('dblclick', () => {
+    if (hoverObj?.type === 'via') window.dispatchEvent(new CustomEvent('v3-goto-via', { detail: hoverObj.id }));
+  });
 }
 
-// y-axis flipped: Λ = -180 at the top, +180 at the bottom
 function toPx(lam, bet) {
-  return [
-    map.x0 + (bet - BMIN) / (BMAX - BMIN) * map.w,
-    map.y0 + (lam - LMIN) / (LMAX - LMIN) * map.h,
-  ];
+  return [map.x0 + (bet - BMIN) / (BMAX - BMIN) * map.w, map.y0 + (lam - LMIN) / (LMAX - LMIN) * map.h];
 }
 function fromPx(x, y) {
-  return [
-    LMIN + (y - map.y0) / map.h * (LMAX - LMIN),
-    BMIN + (x - map.x0) / map.w * (BMAX - BMIN),
-  ];
+  return [LMIN + (y - map.y0) / map.h * (LMAX - LMIN), BMIN + (x - map.x0) / map.w * (BMAX - BMIN)];
 }
-
 function moveTo(e, live) {
   const r = cv.getBoundingClientRect();
   const [lam, bet] = fromPx(e.clientX - r.left, e.clientY - r.top);
   if (bet < BMIN - 2 || bet > BMAX + 2) return;
-  setField(Math.max(-180, Math.min(180, lam)), Math.max(BMIN, Math.min(BMAX, bet)),
-    live ? { live: true } : {});
+  setField(Math.max(-180, Math.min(180, lam)), Math.max(BMIN, Math.min(BMAX, bet)), live ? { live: true } : {});
+}
+
+function bgGridsSgr() {
+  const bg = bgGridFor(state.himap);
+  const layers = [[bg.sgr, bgScale(), 1]];
+  if (bg.overlay) layers.push([bg.overlay.sgr, scales.hiRed, 0.55]);
+  return layers;
 }
 
 function buildBg(w, h) {
-  const key = state.himap + '|' + w + '|' + h;
+  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST + '|' + !!D.DUST3D;
   if (bgCache[key]) return bgCache[key];
   const off = document.createElement('canvas');
   const dpr = Math.min(devicePixelRatio || 1, 2);
   off.width = w * dpr; off.height = h * dpr;
   const ctx = off.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#0e1420';
+  ctx.fillStyle = UI.panel2;
   ctx.fillRect(0, 0, w, h);
-  const useHvc = state.himap === 'hvc';
-  const overlay = state.himap === 'overlay' && D.HI_SGR_HVC;
-  const layers = [[useHvc && D.HI_SGR_HVC ? D.HI_SGR_HVC : D.HI_SGR_TOTAL,
-    useHvc ? scales.hiRed : scales.hiBlue, 1]];
-  if (overlay) layers.push([D.HI_SGR_HVC, scales.hiRed, 0.55]);
-  const [nb, nl] = D.HI_SGR_SHAPE;                  // (61 bet, 361 lam)
-  for (const [grid, scale, alphaMul] of layers) {
+  const [nb, nl] = D.HI_SGR_SHAPE;
+  hiStretchSgr[state.himap] = null;
+  for (const [grid, scale, alphaMul] of bgGridsSgr()) {
     const fin = [];
     for (let i = 0; i < grid.length; i += 3) if (Number.isFinite(grid[i])) fin.push(grid[i]);
     fin.sort((a, b) => a - b);
@@ -97,27 +98,25 @@ function buildBg(w, h) {
     }
     ctx.globalAlpha = 1;
   }
-  // axes labels
-  label(ctx, 'B [°]', map.x0 + map.w / 2, h - 2, { align: 'center', size: 9 });
+  label(ctx, 'B [°]', map.x0 + map.w / 2, h - 2, { align: 'center', size: 9, color: UI.textDim });
   for (const bv of [-20, 0, 20]) {
     const [X] = toPx(0, bv);
-    label(ctx, String(bv), X, h - 12, { align: 'center', size: 8 });
+    label(ctx, String(bv), X, h - 12, { align: 'center', size: 8, color: UI.textDim });
   }
   for (const lv of [-120, -60, 0, 60, 120]) {
     const [, Y] = toPx(lv, 0);
-    label(ctx, String(lv), 2, Y + 3, { size: 8 });
+    label(ctx, String(lv), 2, Y + 3, { size: 8, color: UI.textDim });
   }
-  label(ctx, 'Λ', 4, map.y0 + 10, { size: 10, color: '#93a0b6' });
+  label(ctx, 'Λ', 4, map.y0 + 10, { size: 10, color: UI.textDim });
   bgCache[key] = off;
   return off;
 }
 
 let starCache = null, starCacheKey = '';
-
 function buildStarLayer(w, h) {
   const key = [w, h, state.via, state.streamsOn, state.hlStream && state.streamSel,
-    state.gcOn, state.dgOn, state.viaDwarfs,
-    state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel, state.himap].join('|');
+    state.gcOn, state.dgOn, state.viaDwarfs, state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel,
+    state.himap, UI.themeName, !!D.DUST].join('|');
   if (starCache && starCacheKey === key) return starCache;
   starCacheKey = key;
   const off = document.createElement('canvas');
@@ -126,7 +125,7 @@ function buildStarLayer(w, h) {
   const ctx = off.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.drawImage(buildBg(w, h), 0, 0, w, h);
-
+  const light = UI.themeName === 'light';
   const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
   if (state.streamsOn) {
     ctx.globalAlpha = 0.6;
@@ -136,7 +135,7 @@ function buildStarLayer(w, h) {
       if (bet < BMIN || bet > BMAX) continue;
       const isSel = selCode < 0 || D.s_name_code[i] === selCode;
       const [X, Y] = toPx(D.s_lam[i], bet);
-      ctx.fillStyle = isSel ? '#c8d2e2' : '#525c70';
+      ctx.fillStyle = isSel ? (light ? '#2a2620' : '#e2dcd0') : UI.greyStar;
       ctx.fillRect(X, Y, 1.5, 1.5);
     }
     if (selCode >= 0) {
@@ -174,40 +173,55 @@ function buildStarLayer(w, h) {
   return off;
 }
 
-const ASPECT = 1.95;   // h/w — fixed, so the enlarged view keeps the strip's shape
+const ASPECT = 1.95;
 
 function draw() {
   const availW = wrap.clientWidth;
   if (!availW) return;
+  const big = expander.isExpanded();
   const availH = Math.max(320, window.innerHeight - 60);
   let w = Math.round(availW * 0.8);
   let h = Math.round(w * ASPECT);
   if (h > availH) { h = availH; w = Math.round(h / ASPECT); }
   const ctx = fitCanvas(cv, w, h);
-  map.w = w - map.x0 - 40;      // right margin reserved for the vertical HI colorbar
+  map.w = w - map.x0 - 40;
   map.h = h - map.y0 - 20;
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
   drawHiBarV(ctx, w, h);
 
   if (state.cloudsOn && D.CLOUDS) {
     const cl = D.CLOUDS;
-    ctx.strokeStyle = '#6fd8e8';
     ctx.globalAlpha = 0.75;
     for (const i of (F.clouds ?? [])) {
       if (Math.abs(cl.bet[i]) > 32) continue;
       const [X, Y] = toPx(cl.lam[i], cl.bet[i]);
       const r = Math.max(1.6, cl.radDeg[i] / 60 * map.w);
+      ctx.strokeStyle = cloudColor(i);
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(X, Y, r, 0, 2 * Math.PI);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(X, Y, r, 0, 2 * Math.PI); ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
-
+  if (state.viaOn && D.VIA) {
+    const V = D.VIA;
+    const r1 = 0.5 / (BMAX - BMIN) * map.w;
+    for (let i = 0; i < V.svy.length; i++) {
+      if (!state.viaSvy[V.svy[i]] || Math.abs(V.bet[i]) > 30.5) continue;
+      const [X, Y] = toPx(V.lam[i], V.bet[i]);
+      const col = SVY_COL[V.svy[i]];
+      if (big) { ctx.globalAlpha = 0.85; circleOutline(ctx, X, Y, Math.max(2.2, r1), col, 1); ctx.globalAlpha = 1; }
+      else dot(ctx, X, Y, 1.7, col, 0.9);
+    }
+  }
+  if (state.sightOn && D.SIGHT?.bish19) {
+    const S = D.SIGHT.bish19;
+    for (let i = 0; i < S.name.length; i++) {
+      if (Math.abs(S.bet[i]) > 30.5) continue;
+      const [X, Y] = toPx(S.lam[i], S.bet[i]);
+      circleOutline(ctx, X, Y, big ? 6 : 4, UI.text, 1.4);
+    }
+  }
   drawHoverStructure(ctx);
-
-  // field circle (ellipse in this projection: Δlam stretched by 1/cos(bet)) — outline only
   const cosb = Math.max(Math.cos(state.bet0 * Math.PI / 180), 0.1);
   const rr = state.fov / 2 * 0.95;
   const [FX, FY] = toPx(state.lam0, state.bet0);
@@ -221,28 +235,25 @@ function draw() {
   cv.style.cursor = 'crosshair';
 }
 
-// vertical HI colorbar along the right edge of the strip
 function drawHiBarV(ctx, w, h) {
   const st = hiStretchSgr[state.himap];
   if (!st) return;
-  const useHvc = state.himap === 'hvc';
-  const scale = useHvc ? scales.hiRed : scales.hiBlue;
+  const scale = bgScale();
   const bw = 9, bx = w - 24;
   const by = map.y0 + 16, bh = map.h - 32;
   for (let k = 0; k < bh; k++) {
-    ctx.fillStyle = scale.css(1 - k / (bh - 1));    // top = max
+    ctx.fillStyle = scale.css(1 - k / (bh - 1));
     ctx.fillRect(bx, by + k, bw, 1.2);
   }
-  label(ctx, st.v1.toFixed(1), bx + bw / 2, by - 5, { align: 'center', size: 8 });
-  label(ctx, st.v0.toFixed(1), bx + bw / 2, by + bh + 10, { align: 'center', size: 8 });
+  label(ctx, st.v1.toFixed(1), bx + bw / 2, by - 5, { align: 'center', size: 8, color: UI.textDim });
+  label(ctx, st.v0.toFixed(1), bx + bw / 2, by + bh + 10, { align: 'center', size: 8, color: UI.textDim });
   ctx.save();
   ctx.translate(w - 4, by + bh / 2);
   ctx.rotate(-Math.PI / 2);
-  label(ctx, useHvc ? 'HVC log N(HI)' : 'log N(HI)', 0, 0, { align: 'center', size: 8 });
+  label(ctx, bgLabel(), 0, 0, { align: 'center', size: 8, color: UI.textDim });
   ctx.restore();
 }
 
-// ---- whole-structure hover (enlarged view only) --------------------------------------
 function hoverStructure(e) {
   const r = cv.getBoundingClientRect();
   const x = e.clientX - r.left, y = e.clientY - r.top;
@@ -263,6 +274,15 @@ function hoverStructure(e) {
       if (d < bd) { bd = d; best = { type: 'dwarf', id: i }; }
     }
   }
+  if (!best && state.viaOn && D.VIA) {
+    let vd = 7;
+    for (let i = 0; i < D.VIA.svy.length; i++) {
+      if (!state.viaSvy[D.VIA.svy[i]] || Math.abs(D.VIA.bet[i]) > 30.5) continue;
+      const [X, Y] = toPx(D.VIA.lam[i], D.VIA.bet[i]);
+      const d = Math.hypot(X - x, Y - y);
+      if (d < vd) { vd = d; best = { type: 'via', id: i }; }
+    }
+  }
   if (!best && state.streamsOn) {
     let sd = 9;
     for (let i = 0; i < D.N; i += 2) {
@@ -279,10 +299,10 @@ function hoverStructure(e) {
     draw();
     if (best) {
       tipEl.innerHTML = best.type === 'stream'
-        ? `<b>${D.STREAM_NAMES[best.id]}</b> · stream`
-        : best.type === 'gc'
-          ? `<b>${D.GCC.name[best.id]}</b> · GC<br>${D.GCC.dist[best.id].toFixed(1)} kpc`
-          : `<b>${D.DWF.name[best.id]}</b> · dwarf<br>${D.DWF.dist[best.id].toFixed(1)} kpc`;
+        ? `<b>${D.STREAM_NAMES[best.id]}</b> · stream${D.streamIsVia(best.id) ? ' (Via core)' : ''}`
+        : best.type === 'gc' ? `<b>${D.GCC.name[best.id]}</b> · GC<br>${D.GCC.dist[best.id].toFixed(1)} kpc`
+        : best.type === 'via' ? viaHtml(best.id)
+        : `<b>${D.DWF.name[best.id]}</b> · dwarf<br>${D.DWF.dist[best.id].toFixed(1)} kpc`;
       tipEl.style.display = 'block';
       placeTooltip(tipEl, e);
     } else tipEl.style.display = 'none';
@@ -303,6 +323,11 @@ function drawHoverStructure(ctx) {
       lx = X; ly = Y;
     }
     if (lx !== null) label(ctx, D.STREAM_NAMES[hoverObj.id], lx + 8, ly, { size: 10, color: streamColor(hoverObj.id) });
+  } else if (hoverObj.type === 'via') {
+    const V = D.VIA, i = hoverObj.id;
+    const [X, Y] = toPx(V.lam[i], V.bet[i]);
+    circleOutline(ctx, X, Y, 7, SVY_COL[V.svy[i]], 2);
+    label(ctx, `${SVY_SHORT[V.svy[i]] ?? V.svy[i]}: ${V.name[i] || 'tile ' + V.tile[i]}`, X + 10, Y + 3, { size: 10, color: SVY_COL[V.svy[i]] });
   } else {
     const cat = hoverObj.type === 'gc' ? D.GCC : D.DWF;
     if (Math.abs(cat.bet[hoverObj.id]) > 32) return;

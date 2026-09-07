@@ -1,6 +1,6 @@
 // Distance-ladder panel: the field's rung count (headline metric) and the ladder
 // graphic on a log-distance axis. Hovering a rung icon pops those sources out on
-// the finder chart (via the 'hilite' topic). The fiber budget lives in the stats box.
+// the finder chart (via the 'hilite' topic).
 import { D } from '../data.js';
 import { state, on, emit } from '../state.js';
 import { F } from '../fieldmodel.js';
@@ -8,9 +8,9 @@ import { UI, streamColorByName, dwarfColorByName } from '../colors.js';
 import { fitCanvas, hexagram, diamond, dot, label } from './canvas2d.js';
 
 let wrap, headEl, cvs;
-let iconHits = [];            // [{x, y, r, rung}] for hover pop-out
+let iconHits = [];
 let hoverRung = null;
-const KC = { stream: '#e08585', GC: UI.gc, dwarf: UI.dwarf, halo: UI.halo, qso: UI.accent2 };
+const KC = () => ({ stream: '#e08585', GC: UI.gc, dwarf: UI.dwarf, halo: UI.halo, kg: UI.kg, bhb: UI.bhb, qso: UI.accent2 });
 
 export function initLadder(container) {
   wrap = container;
@@ -19,6 +19,7 @@ export function initLadder(container) {
   cvs = document.createElement('canvas');
   container.append(headEl, cvs);
   on('fieldmodel', draw);
+  on('theme', draw);
   new ResizeObserver(draw).observe(container);
   cvs.addEventListener('pointermove', e => {
     const r = cvs.getBoundingClientRect();
@@ -42,7 +43,7 @@ export function initLadder(container) {
 
 function draw() {
   const L = F.ladder;
-  // headline: rung count + the rung distances themselves
+  if (!L) return;
   const dists = L.groups.map(g => {
     const md = g.reduce((s, r) => s + r.dist, 0) / g.length;
     return md >= 100 ? md.toFixed(0) : md.toFixed(1);
@@ -59,22 +60,18 @@ function draw() {
     const ctx0 = fitCanvas(cvs, w, 46);
     ctx0.clearRect(0, 0, w, 46);
     iconHits = [];
-    label(ctx0, 'no rungs — no structures with ≥2 sources in field', w / 2, 24, { align: 'center' });
+    label(ctx0, 'no rungs — no structure with ≥2 sources in the field', w / 2, 24, { align: 'center', color: UI.textDim });
     return;
   }
   const x0 = 8, x1 = w - 8;
-  const dMin = 1.5, dMax = 130;                  // kpc log axis; ∞ parked at right
-  // beyond-axis objects (e.g. M31-distance dwarfs) clamp to the axis end
+  const dMin = 1.5, dMax = 130;
   const lx = d => Math.min(x1 - 50,
     x0 + (Math.log10(Math.max(d, dMin)) - Math.log10(dMin)) /
     (Math.log10(dMax) - Math.log10(dMin)) * (x1 - x0 - 46));
 
-  // measure + lay out each group's labels first, so the canvas height fits before
-  // anything is drawn. Crowded groups show 2 labels + "+N more"; labels near the
-  // axis end go to the LEFT of their icon; overlaps wrap to extra lines.
   const meas = cvs.getContext('2d');
   meas.font = '8.5px "SF Mono", ui-monospace, Menlo, monospace';
-  const XRIGHT = w - 58;                        // past this, labels flip to the left side
+  const XRIGHT = w - 58;
   const lbl = r => (r.kind === 'GC') ? r.label : `${r.label} (${r.n}★)`;
   const layouts = L.groups.map(grp => {
     const items = grp.map(r => ({ r, X: lx(r.dist) })).sort((a, b) => a.X - b.X);
@@ -84,7 +81,7 @@ function draw() {
          { it: items[2], txt: `+${items.length - 2} more` }]
       : items.map(it => ({ it, txt: lbl(it.r) }));
     const lines = [];
-    const spans = [];                           // occupied [x0,x1] intervals per line
+    const spans = [];
     let nLines = 1;
     for (const { it, txt } of labItems) {
       const tw = meas.measureText(txt).width;
@@ -114,19 +111,20 @@ function draw() {
   const ctx = fitCanvas(cvs, w, h);
   ctx.clearRect(0, 0, w, h);
   iconHits = [];
-  // axis
+  const kc = KC();
   ctx.fillStyle = UI.panelBorder;
   ctx.fillRect(x0, h - 14, x1 - x0, 1);
   for (const t of [2, 5, 10, 20, 50, 100]) {
-    label(ctx, String(t), lx(t), h - 3, { align: 'center', size: 8 });
+    label(ctx, String(t), lx(t), h - 3, { align: 'center', size: 8, color: UI.textDim });
     ctx.fillRect(lx(t), h - 17, 1, 3);
   }
+  label(ctx, 'kpc', x0, h - 3, { size: 8, color: UI.textDim });
   label(ctx, '∞', x1 - 20, h - 3, { align: 'center', size: 10, color: UI.accent2 });
 
   let y = 14;
   for (const lay of layouts) {
     const xs = lay.items.map(it => it.X);
-    ctx.strokeStyle = '#2b3448';
+    ctx.strokeStyle = UI.rungLine;
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(Math.min(...xs) - 2, y);
@@ -134,13 +132,11 @@ function draw() {
     ctx.stroke();
     for (const it of lay.items) {
       const { r, X } = it;
-      // icon colors match the per-object colors in the field view (merged systems
-      // like "Sgr system" have dwarf kind but a stream label — use the stream color)
-      if (r.kind === 'GC') hexagram(ctx, X, y, 6, KC.GC, '#000a');
+      if (r.kind === 'GC') hexagram(ctx, X, y, 6, kc.GC, '#000a');
       else if (r.kind === 'dwarf') {
         const c = D.DWF.name.includes(r.label) ? dwarfColorByName(r.label) : streamColorByName(r.label);
         diamond(ctx, X, y, 5.5, c, '#000a');
-      } else if (r.kind === 'halo') dot(ctx, X, y, 4.5, KC.halo, 0.95);
+      } else if (r.kind === 'halo' || r.kind === 'kg' || r.kind === 'bhb') dot(ctx, X, y, 4.5, kc[r.kind], 0.95);
       else dot(ctx, X, y, 4.5, streamColorByName(r.label), 0.95);
       iconHits.push({ x: X, y, r: 8, rung: r });
     }
@@ -150,7 +146,7 @@ function draw() {
     y += rowH + (lay.nLines - 1) * lineH;
   }
   if (L.qsoRung) {
-    dot(ctx, x1 - 20, y, 4.5, KC.qso, 0.95);
+    dot(ctx, x1 - 20, y, 4.5, kc.qso, 0.95);
     label(ctx, `${L.nQso} quasars`, x1 - 30, y + 3, { align: 'right', size: 8.5, color: UI.textDim });
     iconHits.push({ x: x1 - 20, y, r: 8, rung: { kind: 'qso' } });
   }

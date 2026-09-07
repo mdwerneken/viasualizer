@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIAsual — Via halo sightline planner</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🌌</text></svg>">
-<link rel="stylesheet" href="css/style.css?v=2.6">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="stylesheet" href="css/style.css?v=3.0">
 <script type="importmap">
   { "imports": { "three": "./js/vendor/three.module.min.js" } }
 </script>
@@ -13,17 +13,30 @@
 <body>
 <div id="loading">
   <div class="load-card">
+    <img class="load-logo" src="img/via_oval.png" alt="Via">
     <div class="load-title">VIAsual</div>
-    <div class="load-sub">Via halo sightline planner — streams · GCs · dwarfs · quasars · HI</div>
+    <div class="load-sub">Via cold-gas sightline planner — streams · clusters · dwarfs · halo tracers · quasars · gas &amp; dust</div>
     <div id="load-progress">starting…</div>
   </div>
 </div>
 
-<div id="layout">
-  <aside id="sidebar"></aside>
+<div id="layout" class="sb-open">
+  <aside id="sidebar">
+    <div class="brand-row">
+      <img class="brand-logo" src="img/via_logo_white.png" alt="Via">
+      <span class="brand">VIAsual</span>
+      <span class="brand-btns">
+        <button id="help-btn" class="icon-btn" title="15-second tour">?</button>
+        <button id="theme-btn" class="icon-btn" title="light / dark">◐</button>
+      </span>
+    </div>
+    <div id="sidebar-body"></div>
+  </aside>
+  <button id="sb-toggle" class="icon-btn" title="show / hide controls (C)">☰</button>
 
   <main id="main">
     <div id="scene"></div>
+    <div id="player" hidden></div>
     <div id="bottom-bar"></div>
   </main>
 
@@ -33,27 +46,58 @@
       <button class="tab-btn" data-tab="sky">Sky</button>
     </nav>
     <div class="tab-page" data-tab="field">
-      <div id="finder-wrap"></div>
-      <div id="ladder-wrap"></div>
-      <div id="stats-wrap"></div>
-      <div id="hists-wrap"></div>
+      <div class="panel" id="p-finder">
+        <div class="panel-head"><span class="panel-title">Field view</span>
+          <span class="panel-cap">what the 1° fiber field sees — finder chart on the gas/dust background; drag to pan, double-click to recenter, ⤢ to enlarge</span></div>
+        <div id="finder-wrap"></div>
+      </div>
+      <div class="panel" id="p-ladder">
+        <div class="panel-head"><span class="panel-title">Distance ladder</span>
+          <span class="panel-cap">distinct distances sampled by backlights in this field — one rung per structure, quasars at ∞; hover a rung to pop it out</span></div>
+        <div id="ladder-wrap"></div>
+      </div>
+      <div class="panel" id="p-stats">
+        <div class="panel-head"><span class="panel-title">Targets &amp; fiber budget</span>
+          <span class="panel-cap">every source a Via pointing here could observe, by catalog, against the 540 science fibers</span></div>
+        <div id="stats-wrap"></div>
+      </div>
+      <div class="panel" id="p-hists">
+        <div class="panel-head"><span class="panel-title">Field statistics</span>
+          <span class="panel-cap">distances, backlights behind each distance, magnitudes and fiber crowding of the sources in the field</span></div>
+        <div id="hists-wrap"></div>
+      </div>
     </div>
     <div class="tab-page" data-tab="sky" style="display:none">
-      <div id="allsky-wrap"></div>
-      <div id="sgrmap-wrap"></div>
+      <div class="panel" id="p-layers">
+        <div class="panel-head"><span class="panel-title">Map layers</span>
+          <span class="panel-cap">background map and overlays for both sky views; the legend below follows what is shown</span></div>
+        <div id="layers-wrap"></div>
+      </div>
+      <div class="panel" id="p-allsky">
+        <div class="panel-head"><span class="panel-title">All-sky (Galactic)</span>
+          <span class="panel-cap">Mollweide, ℓ increasing to the left; click or drag the red circle to move the field; ⤢ to enlarge and hover structures</span></div>
+        <div id="allsky-wrap"></div>
+      </div>
+      <div class="panel" id="p-sgr">
+        <div class="panel-head"><span class="panel-title">Sagittarius stream frame</span>
+          <span class="panel-cap">±30° strip in Sgr (Λ, B) coordinates, Λ down the page — the stream runs along the middle</span></div>
+        <div id="sgrmap-wrap"></div>
+      </div>
     </div>
   </section>
 </div>
 
 <div id="tooltip3d" class="tooltip"></div>
 <div id="tooltip2d" class="tooltip"></div>
+<div id="tour" hidden></div>
 
 <footer id="credit">
   <a href="https://via-project.org" target="_blank" rel="noopener">The Via Project</a> ·
+  <a href="v2/" title="frozen v2.6 (9-6-26)">v2</a> ·
   <a href="v1/" title="original app">v1</a> ·
-  <a href="https://github.com/mdwerneken/viasual" target="_blank" rel="noopener">source</a>
+  <a href="https://github.com/mdwerneken/viasual-app" target="_blank" rel="noopener">source</a>
 </footer>
 
-<script type="module" src="js/app.js?v=2.6"></script>
+<script type="module" src="js/app.js?v=3.0"></script>
 </body>
 </html>

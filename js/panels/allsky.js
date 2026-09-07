@@ -1,22 +1,23 @@
-// All-sky Mollweide (Galactic) — HI background (offscreen-cached), star scatter,
-// object markers, survey-cone circles (dblclick to open that field), selected-object
-// highlighting, LMC/SMC disks, a draggable field circle, and full-screen enlarge
-// (with whole-structure hover when enlarged).
-import { D } from '../data.js';
+// All-sky Mollweide (Galactic) — gas/dust background (offscreen-cached), star scatter,
+// object markers, Via planned pointings, HVC clouds, literature sightlines, survey-cone
+// circles (dblclick to open that field), selected-object highlighting, LMC/SMC disks,
+// a draggable field circle, and full-screen enlarge (with structure hover when enlarged).
+import { D, bgGridFor } from '../data.js';
 import { state, setField, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import * as C from '../compute.js';
-import { UI, scales, streamColor } from '../colors.js';
-import { fitCanvas, hexagram, diamond, dot, label } from './canvas2d.js';
+import { UI, scales, streamColor, SVY_COL, SVY_SHORT, bgScale, bgLabel } from '../colors.js';
+import { fitCanvas, hexagram, diamond, dot, label, circleOutline } from './canvas2d.js';
 import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
+import { cloudColor } from './finder.js';
 
 let cv, wrap, tipEl, expander;
-let bgCache = {};        // himap key -> offscreen canvas (HI + stars + equator)
-let hiStretchSky = {};   // himap -> {v0, v1} used for the background stretch
+let bgCache = {};
+let hiStretchSky = {};
 let map = { w: 0, h: 0, sx: 1, sy: 1, cx: 0, cy: 0 };
 let dragging = false;
-let hoverObj = null;     // {type:'stream'|'gc'|'dwarf', id} while enlarged
+let hoverObj = null;
 
 const MX = 2 * C.SQ2 * 1.02, MY = C.SQ2 * 1.05;
 const MAGELLANIC = [{ name: 'LMC', rDeg: 5.4 }, { name: 'SMC', rDeg: 2.6 }];
@@ -27,10 +28,13 @@ export function initAllsky(container) {
   cv.className = 'allsky-canvas';
   container.appendChild(cv);
   tipEl = document.getElementById('tooltip2d');
-  expander = makeExpandable(container, { onToggle: () => { bgCache = {}; starCache = null; hoverObj = null; draw(); } });
+  const reset = () => { bgCache = {}; starCache = null; hoverObj = null; draw(); };
+  expander = makeExpandable(container, { onToggle: reset, hint: 'click or drag to move the field · hover structures and pointings · double-click a survey circle or Via pointing to open it · Esc closes' });
   on('fieldmodel', draw);
+  on('theme', () => { bgCache = {}; starCache = null; hiStretchSky = {}; draw(); });
   new ResizeObserver(() => { bgCache = {}; starCache = null; draw(); }).observe(container);
   cv.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
     dragging = true;
     try { cv.setPointerCapture(e.pointerId); } catch {}
     moveTo(e, true);
@@ -39,9 +43,7 @@ export function initAllsky(container) {
     if (dragging) { moveTo(e, true); return; }
     if (expander.isExpanded()) hoverStructure(e);
   });
-  cv.addEventListener('pointerup', (e) => {
-    if (dragging) { dragging = false; moveTo(e, false); }
-  });
+  cv.addEventListener('pointerup', (e) => { if (dragging) { dragging = false; moveTo(e, false); } });
   cv.addEventListener('pointerleave', () => {
     if (hoverObj) { hoverObj = null; draw(); }
     tipEl.style.display = 'none';
@@ -49,6 +51,20 @@ export function initAllsky(container) {
   cv.addEventListener('dblclick', (e) => {
     const lb = eventLB(e);
     if (!lb) return;
+    // a Via pointing under the cursor?
+    if (D.VIA && state.viaOn) {
+      const r = cv.getBoundingClientRect();
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      let best = -1, bd = 7;
+      for (let i = 0; i < D.VIA.svy.length; i++) {
+        if (!state.viaSvy[D.VIA.svy[i]]) continue;
+        const [mx, my] = C.mollXY(D.VIA.l[i], D.VIA.b[i]);
+        const [X, Y] = toPx(mx, my);
+        const d = Math.hypot(X - x, Y - y);
+        if (d < bd) { bd = d; best = i; }
+      }
+      if (best >= 0) { window.dispatchEvent(new CustomEvent('v3-goto-via', { detail: best })); return; }
+    }
     for (const cone of D.CONES) {
       if (!state[cone.key]) continue;
       if (C.angSepAm(lb[0], lb[1], cone.l, cone.b) / 60 <= cone.r) {
@@ -61,13 +77,11 @@ export function initAllsky(container) {
 
 function toPx(mx, my) { return [map.cx + mx * map.sx, map.cy - my * map.sy]; }
 function fromPx(x, y) { return [(x - map.cx) / map.sx, -(y - map.cy) / map.sy]; }
-
 function eventLB(e) {
   const r = cv.getBoundingClientRect();
   const [mx, my] = fromPx(e.clientX - r.left, e.clientY - r.top);
   return C.mollInvert(mx, my);
 }
-
 function moveTo(e, live) {
   const lb = eventLB(e);
   if (!lb) return;
@@ -75,8 +89,15 @@ function moveTo(e, live) {
   setField(lam, bet, live ? { live: true } : {});
 }
 
+function bgGrids() {
+  const bg = bgGridFor(state.himap);
+  const layers = [[bg.gal, bgScale(), 1]];
+  if (bg.overlay) layers.push([bg.overlay.gal, scales.hiRed, 0.55]);
+  return layers;
+}
+
 function buildBg(w, h) {
-  const key = state.himap + '|' + w + '|' + h;
+  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST + '|' + !!D.DUST3D;
   if (bgCache[key]) return bgCache[key];
   const off = document.createElement('canvas');
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -85,16 +106,9 @@ function buildBg(w, h) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = UI.bg;
   ctx.fillRect(0, 0, w, h);
-
-  const useHvc = state.himap === 'hvc';
-  const overlay = state.himap === 'overlay' && D.HI_LOG_HVC;
-  const layers = [[useHvc && D.HI_LOG_HVC ? D.HI_LOG_HVC : D.HI_LOG_TOTAL,
-    useHvc ? scales.hiRed : scales.hiBlue, 1]];
-  if (overlay) layers.push([D.HI_LOG_HVC, scales.hiRed, 0.55]);
-
-  // rasterize Mollweide by inverse mapping each pixel block
   const img = ctx.getImageData(0, 0, off.width, off.height);
-  for (const [grid, scale, alphaMul] of layers) {
+  hiStretchSky[state.himap] = null;
+  for (const [grid, scale, alphaMul] of bgGrids()) {
     const samp = [];
     for (let i = 0; i < grid.length; i += 11) if (Number.isFinite(grid[i])) samp.push(grid[i]);
     samp.sort((a, b) => a - b);
@@ -120,30 +134,29 @@ function buildBg(w, h) {
     }
   }
   ctx.putImageData(img, 0, 0);
-
-  // celestial equator (grey dots)
-  ctx.fillStyle = '#5a6376';
+  // celestial equator (grey dots) + longitude labels
+  ctx.fillStyle = UI.textDim;
+  ctx.globalAlpha = 0.6;
   for (let i = 0; i < D.s_eq_l.length; i++) {
     const [mx, my] = C.mollXY(D.s_eq_l[i], D.s_eq_b[i]);
     const [X, Y] = toPx(mx, my);
     ctx.fillRect(X, Y, 1.2, 1.2);
   }
-  // longitude labels along equator
+  ctx.globalAlpha = 1;
   for (let lv = -150; lv <= 150; lv += 30) {
     const [mx, my] = C.mollXY(lv, 0);
     const [X, Y] = toPx(mx, my);
-    label(ctx, String(lv), X, Y - 3, { size: 8, color: '#93a0b6', align: 'center' });
+    label(ctx, String(lv), X, Y - 3, { size: 8, color: UI.textDim, align: 'center' });
   }
   bgCache[key] = off;
   return off;
 }
 
 let starCache = null, starCacheKey = '';
-
 function buildStarLayer(w, h) {
   const key = [w, h, state.via, state.streamsOn, state.hlStream && state.streamSel,
-    state.memOn, state.gcOn, state.dgOn, state.viaDwarfs,
-    state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel, state.himap].join('|');
+    state.memOn, state.mem2On, state.gcOn, state.dgOn, state.viaDwarfs,
+    state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel, state.himap, UI.themeName, !!D.MEM2, !!D.DUST].join('|');
   if (starCache && starCacheKey === key) return starCache;
   starCacheKey = key;
   const off = document.createElement('canvas');
@@ -152,7 +165,7 @@ function buildStarLayer(w, h) {
   const ctx = off.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.drawImage(buildBg(w, h), 0, 0, w, h);
-
+  const light = UI.themeName === 'light';
   const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
   if (state.streamsOn) {
     ctx.globalAlpha = 0.55;
@@ -161,10 +174,9 @@ function buildStarLayer(w, h) {
       const isSel = selCode < 0 || D.s_name_code[i] === selCode;
       const [mx, my] = C.mollXY(D.s_l[i], D.s_b[i]);
       const [X, Y] = toPx(mx, my);
-      ctx.fillStyle = isSel ? '#c8d2e2' : '#525c70';
+      ctx.fillStyle = isSel ? (light ? '#2a2620' : '#e2dcd0') : UI.greyStar;
       ctx.fillRect(X, Y, isSel ? 1.6 : 1.2, isSel ? 1.6 : 1.2);
     }
-    // the selected stream drawn on top in the field accent color
     if (selCode >= 0) {
       ctx.fillStyle = UI.accent;
       for (let i = 0; i < D.N; i++) {
@@ -173,12 +185,10 @@ function buildStarLayer(w, h) {
         const [X, Y] = toPx(mx, my);
         ctx.fillRect(X, Y, 2, 2);
       }
-      ctx.globalAlpha = 1;
     }
     ctx.globalAlpha = 1;
   }
   if (state.dgOn && state.memOn) {
-    // LMC / SMC rough on-sky disks in place of members
     for (const mc of MAGELLANIC) {
       const i = D.DWF.name.indexOf(mc.name);
       if (i < 0) continue;
@@ -196,6 +206,16 @@ function buildStarLayer(w, h) {
     for (let i = 0; i < D.MEM.lam.length; i += 2) {
       if (state.viaDwarfs && !(D.MEM.dist[i] < 300)) continue;
       const [mx, my] = C.mollXY(D.MEM.l[i], D.MEM.b[i]);
+      const [X, Y] = toPx(mx, my);
+      ctx.fillRect(X, Y, 1.6, 1.6);
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (state.dgOn && state.mem2On && D.MEM2) {
+    ctx.fillStyle = UI.member2;
+    ctx.globalAlpha = 0.7;
+    for (let i = 0; i < D.MEM2.lam.length; i += 2) {
+      const [mx, my] = C.mollXY(D.MEM2.l[i], D.MEM2.b[i]);
       const [X, Y] = toPx(mx, my);
       ctx.fillRect(X, Y, 1.6, 1.6);
     }
@@ -227,56 +247,73 @@ function buildStarLayer(w, h) {
 function draw() {
   const w = wrap.clientWidth;
   if (!w) return;
+  const big = expander.isExpanded();
   const h = Math.min(Math.round(w * 0.52), Math.max(240, window.innerHeight - 90));
   const ctx = fitCanvas(cv, w, h);
   map.cx = w / 2; map.cy = h / 2;
   const s = Math.min((w / 2 - 4) / MX, (h / 2 - 4) / MY);
   map.sx = s; map.sy = s;
-
   ctx.fillStyle = UI.bg;
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
 
+  // HVC clouds (outline at catalog size; optional velocity color)
   if (state.cloudsOn && D.CLOUDS) {
     const cl = D.CLOUDS;
-    ctx.strokeStyle = UI.cloud;
     ctx.globalAlpha = 0.75;
     for (const i of (F.clouds ?? [])) {
       const [mx, my] = C.mollXY(cl.l[i], cl.b[i]);
       const [X, Y] = toPx(mx, my);
       const r = Math.max(1.4, cl.radDeg[i] * map.sx * 0.049);
+      ctx.strokeStyle = cloudColor(i);
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(X, Y, r, 0, 2 * Math.PI);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(X, Y, r, 0, 2 * Math.PI); ctx.stroke();
     }
     ctx.globalAlpha = 1;
+  }
+  // Via planned pointings: 1-degree circles (dots when small), survey colors
+  if (state.viaOn && D.VIA) {
+    const V = D.VIA;
+    const r1 = 0.5 * map.sx * 0.049;           // 0.5 deg in map px (approx, at the equator)
+    for (let i = 0; i < V.svy.length; i++) {
+      if (!state.viaSvy[V.svy[i]]) continue;
+      const [mx, my] = C.mollXY(V.l[i], V.b[i]);
+      const [X, Y] = toPx(mx, my);
+      const col = SVY_COL[V.svy[i]];
+      if (big) {
+        ctx.globalAlpha = 0.85;
+        circleOutline(ctx, X, Y, Math.max(2.2, r1), col, 1);
+        ctx.globalAlpha = 1;
+      } else dot(ctx, X, Y, 1.6, col, 0.9);
+    }
+  }
+  // literature sightlines
+  if (state.sightOn && D.SIGHT?.bish19) {
+    const S = D.SIGHT.bish19;
+    for (let i = 0; i < S.name.length; i++) {
+      const [mx, my] = C.mollXY(S.l[i], S.b[i]);
+      const [X, Y] = toPx(mx, my);
+      circleOutline(ctx, X, Y, big ? 6 : 4, UI.text, 1.4);
+      if (big) label(ctx, S.name[i].split(' ')[0], X + 8, Y + 3, { size: 9, color: UI.text });
+    }
   }
   for (const cone of D.CONES) {
     if (!state[cone.key]) continue;
     drawSkyCircle(ctx, cone.l, cone.b, cone.r, cone.color, 1.2);
     const [cmx, cmy] = C.mollXY(cone.l, cone.b);
     const [CX, CY] = toPx(cmx, cmy);
-    label(ctx, cone.name, CX, CY - cone.r * map.sy * 0.045 - 4,
-      { align: 'center', size: 8, color: cone.color });
+    label(ctx, cone.name, CX, CY - cone.r * map.sy * 0.045 - 4, { align: 'center', size: 8, color: cone.color });
   }
   drawHoverStructure(ctx);
-  // field circle (no center pip — the outline is the field)
   drawSkyCircle(ctx, F.l0, F.b0, Math.max(state.fov / 2, 1.2), UI.accent, 1.8);
-  if (!expander.isExpanded()) {
-    label(ctx, 'click or drag to move field', 6, 12, { size: 8 });
-    label(ctx, 'or expand to explore', 6, 22, { size: 8 });
-  }
   drawHiBar(ctx, h);
   cv.style.cursor = 'crosshair';
 }
 
-// HI colorbar, bottom-left (larger in the enlarged view)
 function drawHiBar(ctx, h) {
   const st = hiStretchSky[state.himap];
   if (!st) return;
-  const useHvc = state.himap === 'hvc';
-  const scale = useHvc ? scales.hiRed : scales.hiBlue;
+  const scale = bgScale();
   const big = expander.isExpanded();
   const lw = big ? 130 : 56, lh = big ? 13 : 7, fs = big ? 11 : 8;
   const lx = 6, ly = h - lh - (big ? 26 : 20);
@@ -284,9 +321,9 @@ function drawHiBar(ctx, h) {
     ctx.fillStyle = scale.css(k / (lw - 1));
     ctx.fillRect(lx + k, ly, 1.2, lh);
   }
-  label(ctx, useHvc ? 'HVC log N(HI)' : 'log N(HI)', lx, ly - 4, { size: fs });
-  label(ctx, st.v0.toFixed(1), lx, ly + lh + fs + 2, { size: fs });
-  label(ctx, st.v1.toFixed(1), lx + lw, ly + lh + fs + 2, { align: 'right', size: fs });
+  label(ctx, bgLabel(), lx, ly - 4, { size: fs, color: UI.textDim });
+  label(ctx, st.v0.toFixed(1), lx, ly + lh + fs + 2, { size: fs, color: UI.textDim });
+  label(ctx, st.v1.toFixed(1), lx + lw, ly + lh + fs + 2, { align: 'right', size: fs, color: UI.textDim });
 }
 
 // ---- whole-structure hover (enlarged view only) --------------------------------------
@@ -294,7 +331,6 @@ function hoverStructure(e) {
   const r = cv.getBoundingClientRect();
   const x = e.clientX - r.left, y = e.clientY - r.top;
   let best = null, bd = 12;
-  // GCs / dwarfs first (small catalogs, exact)
   if (state.gcOn) {
     for (let i = 0; i < D.GCC.lam.length; i++) {
       const [mx, my] = C.mollXY(D.GCC.l[i], D.GCC.b[i]);
@@ -309,6 +345,16 @@ function hoverStructure(e) {
       const [X, Y] = toPx(mx, my);
       const d = Math.hypot(X - x, Y - y);
       if (d < bd) { bd = d; best = { type: 'dwarf', id: i }; }
+    }
+  }
+  if (!best && state.viaOn && D.VIA) {
+    let vd = 7;
+    for (let i = 0; i < D.VIA.svy.length; i++) {
+      if (!state.viaSvy[D.VIA.svy[i]]) continue;
+      const [mx, my] = C.mollXY(D.VIA.l[i], D.VIA.b[i]);
+      const [X, Y] = toPx(mx, my);
+      const d = Math.hypot(X - x, Y - y);
+      if (d < vd) { vd = d; best = { type: 'via', id: i }; }
     }
   }
   if (!best && state.streamsOn) {
@@ -334,10 +380,15 @@ function hoverStructure(e) {
   cv.style.cursor = best ? 'pointer' : 'crosshair';
 }
 
+export function viaHtml(i) {
+  const V = D.VIA;
+  return `<b>Via ${V.surveys[V.svy[i]]}</b>${V.sub[i] ? ` · ${V.sub[i]}` : ''}<br>${V.name[i] || 'tile ' + V.tile[i]} · tile ${V.tile[i]}<br>${V.nvis[i]} planned visit${V.nvis[i] === 1 ? '' : 's'}${Number.isFinite(V.pri[i]) && V.pri[i] > 0 ? ` · priority ${V.pri[i]}` : ''}<br>ℓ ${V.l[i].toFixed(1)}, b ${V.b[i].toFixed(1)} · <span style="opacity:.7">dbl-click to open</span>`;
+}
 function hoverHtml(o) {
   if (o.type === 'gc') return `<b>${D.GCC.name[o.id]}</b> · GC<br>${D.GCC.dist[o.id].toFixed(1)} kpc`;
   if (o.type === 'dwarf') return `<b>${D.DWF.name[o.id]}</b> · dwarf<br>${D.DWF.dist[o.id].toFixed(1)} kpc`;
-  return `<b>${D.STREAM_NAMES[o.id]}</b> · stream`;
+  if (o.type === 'via') return viaHtml(o.id);
+  return `<b>${D.STREAM_NAMES[o.id]}</b> · stream${D.streamIsVia(o.id) ? ' (Via core)' : ''}`;
 }
 
 function drawHoverStructure(ctx) {
@@ -353,6 +404,12 @@ function drawHoverStructure(ctx) {
       lx = X; ly = Y;
     }
     if (lx !== null) label(ctx, D.STREAM_NAMES[hoverObj.id], lx + 8, ly, { size: 10, color: streamColor(hoverObj.id) });
+  } else if (hoverObj.type === 'via') {
+    const V = D.VIA, i = hoverObj.id;
+    const [mx, my] = C.mollXY(V.l[i], V.b[i]);
+    const [X, Y] = toPx(mx, my);
+    circleOutline(ctx, X, Y, 7, SVY_COL[V.svy[i]], 2);
+    label(ctx, `${SVY_SHORT[V.svy[i]] ?? V.svy[i]}: ${V.name[i] || 'tile ' + V.tile[i]}`, X + 10, Y + 3, { size: 10, color: SVY_COL[V.svy[i]] });
   } else {
     const cat = hoverObj.type === 'gc' ? D.GCC : D.DWF;
     const [mx, my] = C.mollXY(cat.l[hoverObj.id], cat.b[hoverObj.id]);
@@ -371,7 +428,7 @@ function drawSkyCircle(ctx, l0, b0, radDeg, color, lw) {
   for (let i = 0; i < lArr.length; i++) {
     const [mx, my] = C.mollXY(lArr[i], bArr[i]);
     const [X, Y] = toPx(mx, my);
-    if (pen && lastX !== null && Math.abs(X - lastX) > 40) pen = false;   // seam break
+    if (pen && lastX !== null && Math.abs(X - lastX) > 40) pen = false;
     if (pen) ctx.lineTo(X, Y); else { ctx.moveTo(X, Y); pen = true; }
     lastX = X;
   }
