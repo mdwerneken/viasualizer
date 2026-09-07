@@ -10,6 +10,7 @@ import { fitCanvas, hexagram, diamond, label, dot, circleOutline } from './canva
 import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
 import { cloudColor } from './finder.js';
+import { LIST, sourceById } from '../lists.js';
 import { viaHtml } from './allsky.js';
 
 let cv, wrap, tipEl, expander;
@@ -211,6 +212,16 @@ function draw() {
       const col = SVY_COL[V.svy[i]];
       if (big) { ctx.globalAlpha = 0.85; circleOutline(ctx, X, Y, Math.max(2.2, r1), col, 1); ctx.globalAlpha = 1; }
       else dot(ctx, X, Y, 1.7, col, 0.9);
+    }
+  }
+  if (state.viaOn) {
+    const r1 = 0.5 / (BMAX - BMIN) * map.w;
+    for (const it of LIST.items) {
+      if (it.src.startsWith('via:') || it.src === 'bish19' || Math.abs(it.bet) > 30.5) continue;
+      const col = sourceById(it.src)?.color ?? UI.text;
+      const [X, Y] = toPx(it.lam, it.bet);
+      if (big) { ctx.globalAlpha = 0.85; circleOutline(ctx, X, Y, Math.max(2.4, r1 * it.fov), col, 1.1); ctx.globalAlpha = 1; }
+      else dot(ctx, X, Y, 1.8, col, 0.9);
     }
   }
   if (state.sightOn && D.SIGHT?.bish19) {

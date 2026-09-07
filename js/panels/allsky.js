@@ -11,6 +11,7 @@ import { fitCanvas, hexagram, diamond, dot, label, circleOutline } from './canva
 import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
 import { cloudColor } from './finder.js';
+import { LIST, sourceById } from '../lists.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};
@@ -285,6 +286,18 @@ function draw() {
         circleOutline(ctx, X, Y, Math.max(2.2, r1), col, 1);
         ctx.globalAlpha = 1;
       } else dot(ctx, X, Y, 1.6, col, 0.9);
+    }
+  }
+  // other active field lists (promising / saved / visited): 1-degree circles in the list color
+  if (state.viaOn) {
+    const r1 = 0.5 * map.sx * 0.049;
+    for (const it of LIST.items) {
+      if (it.src.startsWith('via:') || it.src === 'bish19') continue;
+      const col = sourceById(it.src)?.color ?? UI.text;
+      const [mx, my] = C.mollXY(it.l, it.b);
+      const [X, Y] = toPx(mx, my);
+      if (big) { ctx.globalAlpha = 0.85; circleOutline(ctx, X, Y, Math.max(2.4, r1 * it.fov), col, 1.1); ctx.globalAlpha = 1; }
+      else dot(ctx, X, Y, 1.8, col, 0.9);
     }
   }
   // literature sightlines

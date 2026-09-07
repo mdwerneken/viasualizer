@@ -2,8 +2,8 @@
 // Gas/dust background clipped to the circle (own colorbar top-left + stats top-right),
 // importance-scaled glyphs (Via-stream stars largest; sizes shrink in crowded fields),
 // GC/dwarf/member/tracer/QSO markers, Via planned-pointing circles, literature
-// sightlines, hover readout, dblclick-to-recenter, drag-to-pan, two-finger pan + pinch
-// zoom when enlarged, tiled 1-degree pointings when FOV > 1, and rung pop-outs.
+// sightlines, hover readout, dblclick-to-recenter, drag-to-pan, scroll-wheel FOV (1–5°,
+// small or enlarged), tiled 1-degree pointings when FOV > 1, and rung pop-outs.
 import { D, bgGridFor } from '../data.js';
 import { state, set, setField, slideField, replaceLock, emit, on } from '../state.js';
 import { F, KIND } from '../fieldmodel.js';
@@ -29,7 +29,7 @@ export function initFinder(container) {
   tipEl = document.getElementById('tooltip2d');
   expander = makeExpandable(container, {
     onToggle: () => draw(),
-    hint: 'two-finger scroll pans · pinch (or ⌥ + scroll) changes the FOV · double-click recenters · Esc closes',
+    hint: 'drag pans · scroll changes the FOV (1–5°) · double-click recenters · Esc closes',
   });
   on('fieldmodel', (opts) => { liveMove = !!opts?.live; draw(); });
   on('hilite', h => { hilite = h; draw(); });
@@ -535,22 +535,16 @@ function wirePointer() {
     }
   });
 
-  // enlarged view: two-finger scroll pans the sky, pinch (ctrl+wheel on macOS) or alt+wheel
-  // changes the field size. Live during the gesture, a settled (history-recorded) update after.
+  // scroll wheel / two-finger scroll changes the field size (1–5°), small or enlarged
+  // (Matt 9-7-26: no pinch needed). Live during the gesture, a settled (history-recorded)
+  // update after.
   let wheelTimer = null;
   cv.addEventListener('wheel', e => {
-    if (!expander.isExpanded()) return;
     e.preventDefault();
     tipEl.style.display = 'none';
-    if (e.ctrlKey || e.altKey || e.metaKey) {
-      const f = Math.exp(e.deltaY * 0.004);
-      const fov = Math.min(5, Math.max(1, state.fov * f));
-      if (Math.abs(fov - state.fov) > 1e-4) set({ fov }, 'field');
-    } else {
-      const dXi = e.deltaX / px.scale, dEta = -e.deltaY / px.scale;
-      const [lo, la] = C.gnomonicInv(dXi, dEta, state.lam0, state.bet0);
-      setField(C.wrap180(lo), la, { live: true });
-    }
+    const f = Math.exp(e.deltaY * 0.004);
+    const fov = Math.min(5, Math.max(1, state.fov * f));
+    if (Math.abs(fov - state.fov) > 1e-4) set({ fov }, 'field');
     clearTimeout(wheelTimer);
     wheelTimer = setTimeout(() => setField(state.lam0, state.bet0), 220);
   }, { passive: false });

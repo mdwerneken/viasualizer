@@ -200,6 +200,7 @@ export function recompute(opts = {}) {
 export function initFieldModel() {
   on('field', (opts) => recompute(opts ?? {}));
   on('ui', () => recompute({}));
+  on('lists', () => recompute({}));      // active field lists changed (Via pointings in field follow them)
   on('catalog', () => recompute({}));      // any lazy catalog arrived
   recompute({});
 }

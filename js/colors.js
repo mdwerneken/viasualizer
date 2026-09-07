@@ -5,7 +5,7 @@ import { D } from './data.js';
 
 const THEMES = {
   dark: {
-    bg: '#161514', panel: '#1d1c1a', panel2: '#191816', panelBorder: '#2e2c28',
+    bg: '#161514', scene: '#0b0f16', panel: '#1d1c1a', panel2: '#191816', panelBorder: '#2e2c28',
     text: '#e7e2d8', textDim: '#9d968b', grid: '#2a2826', greyStar: '#4a463f',
     hiBlue: [[0, 'rgb(22,21,20)'], [0.5, 'rgb(58,80,118)'], [1, 'rgb(170,200,240)']],
     hiRed: [[0, 'rgb(24,20,18)'], [0.5, 'rgb(150,58,44)'], [1, 'rgb(250,185,140)']],
@@ -14,7 +14,7 @@ const THEMES = {
     finderBg: '#141312', rungLine: '#3a3733',
   },
   light: {
-    bg: '#f4f1ea', panel: '#fbf9f5', panel2: '#f2efe8', panelBorder: '#d8d2c6',
+    bg: '#f4f1ea', scene: '#f4f1ea', panel: '#fbf9f5', panel2: '#f2efe8', panelBorder: '#d8d2c6',
     text: '#26231f', textDim: '#6e675e', grid: '#c9c2b6', greyStar: '#c4bfb5',
     hiBlue: [[0, 'rgb(250,248,244)'], [0.5, 'rgb(150,170,205)'], [1, 'rgb(40,60,110)']],
     hiRed: [[0, 'rgb(250,246,242)'], [0.5, 'rgb(225,150,120)'], [1, 'rgb(140,40,30)']],

@@ -23,26 +23,26 @@ export const state = {
   himap: 'total',              // background: total | hvc | overlay | dust
   hiSphere: false,             // HI shell in 3D
   coneKepler: true, coneM31: false, coneM82: false, // survey cones (independent)
-  hemiCones: false,            // MMT/Magellan visibility cones
-  theme: 'dark',               // whole-app theme: dark | light
-  boxOn: false,                // 100 kpc reference box
+  hemiCones: false,            // MMT/Magellan visibility cones (no UI since 9-7-26)
+  theme: 'dark',               // whole-app theme (light mode retired 9-7-26)
+  boxOn: false,                // 100 kpc reference box (no UI since 9-7-26)
   diskOn: true,                // galactic disk
   streamsOn: true, qsoOn: true, gcOn: true, dgOn: true, memOn: true, haloOn: false,
   kgOn: false, bhbOn: false, kepOn: false, mem2On: false,   // v3 catalogs (default off)
   cloudsOn: false, cloudFilter: 'all',   // all | compact | vhvc
   cloudHipass: true, cloudAlfalfa: true, cloudGass: true,
   cloudColor: 'none',          // none | vlsr | vgsr — color clouds by velocity
-  viaOn: true,                 // Via planned pointings on the sky maps / finder
-  viaSvy: { sps: true, dgs: true, cgs: true, krs: false, rbs: true, tfs: false },
-  via3d: false,                // Via pointings as a shell of dots in 3D
-  sightOn: false,              // literature sightlines (Bish+19)
+  viaOn: true,                 // overlay the ACTIVE field lists on the sky maps / finder
+  viaSvy: { sps: false, dgs: false, cgs: false, krs: false, rbs: false, tfs: false }, // derived from listSrc
+  via3d: false,                // active field lists as a shell of dots in 3D (15 kpc)
+  sightOn: false,              // Bish+19 sightlines — derived from listSrc ('bish19')
   dust3dOn: false,             // Edenhofer+24 local 3D dust cloud in the 3D view
   connect: false,              // NN match lines on finder
   tab: 'field',                // dossier tab: field | sky
   lock: null,                  // {kind:'stream'|'gc'|'dwarf'|'cone', id, name, dist} go-to lock
   sidebar: true,               // left control sidebar open
   // field lists (v3)
-  listSrc: [],                 // active list sources, e.g. ['via:sps','via:dgs'] or ['top'] or ['saved']
+  listSrc: [],                 // active field lists, e.g. ['via:sps','via:dgs'] or ['top'] or ['saved','bish19']
   listSort: 'order',           // order | rungs | targets | qso | nhi | dec
   listPos: -1,                 // index into the active list, -1 = none
   listOnlyVisible: false,      // filter: visible from at least one site
@@ -67,14 +67,22 @@ export function emit(topic, payload) {
 // mutate state + notify. `set({fov: 3}, 'field')`
 export function set(patch, topic) {
   Object.assign(state, patch);
+  if ('listSrc' in patch) syncListFlags();
   emit(topic ?? 'ui');
   scheduleHash();
   savePrefs();
 }
 
-// ---- persisted preferences (theme, sidebar, layer toggles) --------------------------
-const PREF_KEYS = ['theme', 'sidebar', 'viaSvy', 'viaOn', 'himap', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
-  'cloudsOn', 'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'sightOn', 'diskOn', 'listSort'];
+// the per-survey Via flags and the Bish+19 sightline flag are views of the active field
+// lists (one control drives the player, the maps and the 3D shell — Matt 9-7-26)
+export function syncListFlags() {
+  for (const k of Object.keys(state.viaSvy)) state.viaSvy[k] = state.listSrc.includes(`via:${k}`);
+  state.sightOn = state.listSrc.includes('bish19');
+}
+
+// ---- persisted preferences (sidebar, layer toggles) ---------------------------------
+const PREF_KEYS = ['sidebar', 'viaOn', 'via3d', 'himap', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
+  'cloudsOn', 'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'diskOn', 'listSort'];
 let prefTimer = null;
 function savePrefs() {
   clearTimeout(prefTimer);
@@ -89,7 +97,7 @@ function savePrefs() {
 export function loadPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem(LS_PREFS) || '{}');
-    for (const k of PREF_KEYS) if (k in p) state[k] = (k === 'viaSvy') ? { ...state.viaSvy, ...p[k] } : p[k];
+    for (const k of PREF_KEYS) if (k in p) state[k] = p[k];
   } catch {}
 }
 
@@ -202,7 +210,7 @@ export function icrsField() {
 const HASH_KEYS = ['fov', 'mode', 'ghi', 'himap', 'tab'];
 const FLAG_KEYS = ['streamsOn', 'qsoOn', 'gcOn', 'dgOn', 'memOn', 'haloOn', 'cloudsOn',
   'hide', 'via', 'viaDwarfs', 'hiSphere', 'coneKepler', 'coneM31', 'coneM82',
-  'hemiCones', 'boxOn', 'diskOn', 'kgOn', 'bhbOn', 'kepOn', 'mem2On', 'viaOn', 'sightOn', 'dust3dOn', 'via3d'];
+  'diskOn', 'kgOn', 'bhbOn', 'kepOn', 'mem2On', 'viaOn', 'dust3dOn', 'via3d'];
 let hashTimer = null, applyingHash = false;
 
 function scheduleHash() {
@@ -216,7 +224,6 @@ function scheduleHash() {
     for (const k of HASH_KEYS) p.set(k, String(state[k]));
     const flags = FLAG_KEYS.filter(k => state[k] !== defaultsFlags[k]);
     if (flags.length) p.set('flip', flags.join(','));
-    if (state.theme !== 'dark') p.set('theme', state.theme);
     if (state.streamSel) p.set('stream', state.streamSel);
     if (state.listSrc.length) p.set('list', state.listSrc.join(','));
     history.replaceState(null, '', '#' + p.toString());
@@ -241,7 +248,6 @@ export function initHash() {
     if (p.has('mode')) state.mode = p.get('mode');
     if (p.has('himap')) state.himap = p.get('himap');
     if (p.has('tab')) state.tab = p.get('tab');
-    if (p.has('theme')) state.theme = p.get('theme');
     if (p.has('stream')) state.streamSel = p.get('stream');
     if (p.has('list')) state.listSrc = p.get('list').split(',').filter(Boolean);
     // a shared link fully specifies the flags: start from the app defaults, then flip
@@ -249,6 +255,7 @@ export function initHash() {
     for (const k of (p.get('flip') ?? '').split(',').filter(Boolean)) {
       if (k in defaultsFlags) state[k] = !defaultsFlags[k];
     }
+    syncListFlags();
     return p.has('lam') || (p.has('l') && p.has('b'));
   } finally { applyingHash = false; }
 }

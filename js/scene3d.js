@@ -9,12 +9,16 @@ import { D, bgGridFor } from './data.js';
 import { state, setField, slideField, replaceLock, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { UI, scales, streamColor, HEMI_COL, HEMI_LBL, hexToRgb01, SVY_COL, bgScale } from './colors.js';
+import { LIST, sourceById } from './lists.js';
 
 let renderer, scene, camera, controls, raycaster;
 let starPts, starGeom, colAttr, sizeAttr;
 let gcPts, dwfPts, memPts, mem2Pts = null;
 const tracerPts = {};        // key -> THREE.Points (halo, kg, bhb, kep)
-let viaPts = null;
+let viaPts = null, listPts = null;
+let bold = 1;                // tour: thicker Sun + arrow while the 3D step is shown
+const CAM_DIR = new THREE.Vector3(1.12, 1.12, 0.72).normalize();
+const CAM_DIST = 160;
 let pointer = {};
 let hiSphere = null, conesGroup = null, hemiConesGroup = null, disk, sunMesh, gridGroup;
 let SUN;
@@ -92,14 +96,13 @@ export function initScene(container) {
   SUN = new THREE.Vector3(...D.SUN_GC);
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setClearColor(new THREE.Color(UI.bg));
+  renderer.setClearColor(new THREE.Color(UI.scene));
   container.appendChild(renderer.domElement);
 
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(45, 1, 0.05, 4000);
   camera.up.set(0, 0, 1);
-  const camDir = new THREE.Vector3(1.12, 1.12, 0.72).normalize();
-  camera.position.copy(SUN.clone().add(camDir.multiplyScalar(160)));
+  camera.position.copy(SUN.clone().add(CAM_DIR.clone().multiplyScalar(CAM_DIST)));
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.target.copy(SUN);
@@ -137,6 +140,8 @@ export function initScene(container) {
   on('lock', () => { updatePointer(); needsRender = true; });
   on('catalog', () => { buildLazyPoints(); restyle(); needsRender = true; });
   on('layout', () => setTimeout(() => resize(container), 300));
+  on('list', () => { updateListShell(); needsRender = true; });
+  on('lists', () => { updateVia(); updateListShell(); needsRender = true; });
 
   restyle();
   updatePointer();
@@ -164,7 +169,7 @@ function animate() {
   if (needsRender || moved) {
     // the Sun marker shrinks as the camera closes in (0.55 kpc would swallow the local volume)
     const dcam = camera.position.distanceTo(controls.target);
-    sunMesh.scale.setScalar(Math.max(0.02, Math.min(1, dcam / 160)));
+    sunMesh.scale.setScalar(Math.max(0.02, Math.min(1, dcam / 160)) * bold);
     // the arrow thins out when the camera is close (a 15 kpc arrow sized for the halo view
     // reads as a beam at 3 kpc); rebuild only when the zoom bucket changes
     const bucket = Math.round(Math.log2(Math.max(1, dcam)) * 2);
@@ -259,6 +264,7 @@ export function restyle() {
   restyleCones();
   updateHiSphere();
   updateVia();
+  updateListShell();
   updateChrome();
   drawColorbar();
   needsRender = true;
@@ -467,9 +473,9 @@ function buildDustCloud() {
 
 // camera flights: 'local' = a few kpc from the Sun (local dust / Kepler stars), 'halo' = default
 let flight = null;
-function flyTo(which) {
-  const dir = camera.position.clone().sub(controls.target).normalize();
-  const dist = which === 'local' ? 3.2 : 160;
+function flyTo(which, { resetDir = false } = {}) {
+  const dir = resetDir ? CAM_DIR.clone() : camera.position.clone().sub(controls.target).normalize();
+  const dist = which === 'local' ? 3.2 : which === 'tour' ? 48 : CAM_DIST;
   const p1 = SUN.clone().add(dir.multiplyScalar(dist));
   const p0 = camera.position.clone(), t0c = controls.target.clone();
   const start = performance.now(), dur = 900;
@@ -485,6 +491,14 @@ function flyTo(which) {
   }, 16);
 }
 window.addEventListener('v3-zoom', e => flyTo(e.detail));
+// tour: reset to the default orientation; the 3D step closes in on the Sun with a bold arrow
+export function tourCamera(mode) {
+  if (mode === 'reset') { bold = 1; flyTo('halo', { resetDir: true }); }
+  else if (mode === 'sun') { bold = 2.6; flyTo('tour', { resetDir: true }); }
+  else { bold = 1; flyTo('halo'); }
+  updatePointer();
+  needsRender = true;
+}
 
 function tintCat(pts, cat, selIdx, selName = null, visFn = null) {
   const geo = pts.geometry;
@@ -554,6 +568,32 @@ function updateVia() {
   const V = D.VIA, al = viaPts.geometry.alphaAttr.array;
   for (let i = 0; i < V.svy.length; i++) al[i] = state.viaSvy[V.svy[i]] ? 0.85 : 0;
   viaPts.geometry.alphaAttr.needsUpdate = true;
+}
+
+// active non-Via field lists on the same 15 kpc shell (list colors; no hover)
+function updateListShell() {
+  if (listPts) { scene.remove(listPts); listPts.geometry.dispose(); listPts = null; }
+  if (!state.via3d || !state.viaOn) return;
+  const items = LIST.items.filter(it => !it.src.startsWith('via:'));
+  if (!items.length) return;
+  const n = items.length;
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), sz = new Float32Array(n), al = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const it = items[i];
+    const d = C.matVec(D.RG_GAL2GC, C.unitVector1(it.l, it.b));
+    pos[3 * i] = SUN.x + d[0] * ARROW_LEN; pos[3 * i + 1] = SUN.y + d[1] * ARROW_LEN; pos[3 * i + 2] = SUN.z + d[2] * ARROW_LEN;
+    const [r, g, b] = hexToRgb01(sourceById(it.src)?.color ?? '#ffffff');
+    col[3 * i] = r; col[3 * i + 1] = g; col[3 * i + 2] = b;
+    sz[i] = 6; al[i] = 0.85;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('psize', new THREE.BufferAttribute(sz, 1));
+  geo.setAttribute('alpha', new THREE.BufferAttribute(al, 1));
+  listPts = new THREE.Points(geo, makePointsMaterial(RING_FS));
+  listPts.frustumCulled = false;
+  scene.add(listPts);
 }
 
 // ---- HI / dust shell -----------------------------------------------------------------
@@ -632,7 +672,7 @@ function updateChrome() {
   gridGroup.visible = state.boxOn;
   gridGroup.userData.mat.color.set(UI.grid);
   disk.visible = state.diskOn;
-  renderer.setClearColor(new THREE.Color(UI.bg));
+  renderer.setClearColor(new THREE.Color(UI.scene));
 }
 
 // ---- colorbar overlay (upper-right of the 3D view) -----------------------------------
@@ -772,9 +812,9 @@ export function updatePointer() {
   const dir = fieldDir3();
   const len = pointerLen();
   const up = new THREE.Vector3(0, 1, 0);
-  const tipLen = Math.max(0.44, len * 0.053) * Math.max(0.35, camThin);
-  const tipRad = tipLen * 0.34;
-  const shaftRad = Math.max(0.02, len * 0.0078 * camThin);
+  const tipLen = Math.max(0.44, len * 0.053) * Math.max(0.35, camThin) * (bold > 1 ? 1.4 : 1);
+  const tipRad = tipLen * 0.34 * (bold > 1 ? 1.5 : 1);
+  const shaftRad = Math.max(0.02, len * 0.0078 * camThin) * bold;
   const shaftLen = len - tipLen;
   pointer.shaft.position.copy(SUN);
   pointer.shaft.scale.set(shaftRad, shaftLen, shaftRad);

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VIAsual — Via halo sightline planner</title>
+<title>VIAsualizer — Via halo sightline explorer</title>
 <link rel="icon" type="image/png" href="img/favicon.png">
-<link rel="stylesheet" href="css/style.css?v=3.0">
+<link rel="stylesheet" href="css/style.css?v=3.1">
 <script type="importmap">
   { "imports": { "three": "./js/vendor/three.module.min.js" } }
 </script>
@@ -14,7 +14,7 @@
 <div id="loading">
   <div class="load-card">
     <img class="load-logo" src="img/via_oval.png" alt="Via">
-    <div class="load-title">VIAsual</div>
+    <div class="load-title"><img class="load-mark" src="img/via_logo_white.png" alt="VIA"><span>sualizer</span></div>
     <div class="load-sub">Via cold-gas sightline planner — streams · clusters · dwarfs · halo tracers · quasars · gas &amp; dust</div>
     <div id="load-progress">starting…</div>
   </div>
@@ -23,11 +23,9 @@
 <div id="layout" class="sb-open">
   <aside id="sidebar">
     <div class="brand-row">
-      <img class="brand-logo" src="img/via_logo_white.png" alt="Via">
-      <span class="brand">VIAsual</span>
+      <span class="brand-mark"><img class="brand-logo" src="img/via_logo_white.png" alt="VIA"><span class="brand">sualizer</span></span>
       <span class="brand-btns">
-        <button id="help-btn" class="icon-btn" title="15-second tour">?</button>
-        <button id="theme-btn" class="icon-btn" title="light / dark">◐</button>
+        <button id="help-btn" class="text-btn" title="replay the 15-second tutorial">Tutorial</button>
       </span>
     </div>
     <div id="sidebar-body"></div>
@@ -50,6 +48,9 @@
         <div class="panel-head"><span class="panel-title">Field view</span>
           <span class="panel-cap">what the 1° fiber field sees — finder chart on the gas/dust background; drag to pan, double-click to recenter, ⤢ to enlarge</span></div>
         <div id="finder-wrap"></div>
+      </div>
+      <div class="panel" id="p-fov">
+        <div id="fov-box"></div>
       </div>
       <div class="panel" id="p-ladder">
         <div class="panel-head"><span class="panel-title">Distance ladder</span>
@@ -98,6 +99,6 @@
   <a href="https://github.com/mdwerneken/viasual-app" target="_blank" rel="noopener">source</a>
 </footer>
 
-<script type="module" src="js/app.js?v=3.0"></script>
+<script type="module" src="js/app.js?v=3.1"></script>
 </body>
 </html>

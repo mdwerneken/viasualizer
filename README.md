@@ -26,21 +26,25 @@ link (path and hash preserved) to `/viasual-app/`.
   Kepler-field Gaia stars, Geha+26 dwarf and cluster members, 37 post-2012 dwarfs from the Local
   Volume Database (on), GASS HVC clouds (with HIPASS/ALFALFA), SFD E(B−V), Edenhofer+24 3D dust
   (integrated sky slices to 300/600/1250 pc and a local 3D point cloud), Bish+19 Na I / Ca II
-  sightlines, Via planned pointings on every view (on).
-- **UI.** Warm neutral theme with a paper light mode, collapsible control sidebar, labeled right-hand
-  panels, Sky-tab layer controls with an automatic legend, cloud velocity coloring, a first-run tour,
-  ⌘Z / ⌘⇧Z undo/redo of field moves, enlarged field view with two-finger pan and pinch FOV,
+  sightlines (a custom field list), Via planned pointings as toggleable field lists (off by default).
+- **UI (v3.1, 9-7-26).** Warm charcoal chrome around v2's deep-navy 3D scene (light mode retired),
+  VIAsualizer wordmark + Tutorial button, collapsible control sidebar, labeled right-hand panels,
+  FOV slider under the field view, one **Field lists** section that drives the player, the sky-map
+  overlay and the 3D shell (Planned Via fields · Promising cold-gas fields · Custom, plus an
+  "add a list" dropdown seeded with Bish+19), gas & dust controls on the Sky tab with an automatic
+  legend, a 6-step interactive tour that flies out of / back into the Tutorial button, ⌘Z / ⌘⇧Z
+  undo/redo of field moves, scroll-wheel FOV on the field view (small or enlarged),
   importance-scaled finder glyphs, a "backlights behind distance d" plot, camera flights to the
-  local volume, the Via logo.
+  local volume.
 
 ## Layout
 
 ```
 index.html  css/style.css  img/            v3 shell, theme tokens, logo assets
-js/app.js                                  boot, sidebar, keyboard, theme, tabs, tour hooks
+js/app.js                                  boot, sidebar (field-list chips), keyboard, tabs, tour hooks
 js/state.js  js/data.js  js/compute.js     state + history + hash; loaders + band queries; math core
 js/fieldmodel.js  js/rungs.js  js/lists.js pure field computation; ladder rules; field lists + ranking
-js/colors.js  js/tour.js  js/scene3d.js    themes/identity colors; tour; three.js scene
+js/colors.js  js/tour.js  js/scene3d.js    theme/identity colors; tour; three.js scene (+ tour camera, list shell)
 js/panels/*.js                             finder, allsky, sgrmap, hists, ladder, stats, player, skylayers, expand
 data/                                      exports (49 MB; quaia/dust3d/kgiants lazy-loaded)
 v2/  v1/                                   frozen earlier versions (self-contained)

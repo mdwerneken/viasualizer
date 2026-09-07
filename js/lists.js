@@ -6,10 +6,18 @@ import { D } from './data.js';
 import { state, set, on, emit, loadSaved, histState, slideField, replaceLock } from './state.js';
 import { computeField } from './fieldmodel.js';
 import * as C from './compute.js';
+import { SVY_COL, SVY_SHORT } from './colors.js';
 
 // ---- sources -----------------------------------------------------------------------
-// a source = { id, title, group, items: () => [{lam, bet, l, b, fov, label, sub, meta}] }
+// a source = { id, title, group, color, items: () => [{lam, bet, l, b, fov, label, sub, meta}] }
+// groups (sidebar order): via = planned Via fields · top = scan-grid shortlists ·
+// custom = saved / visited / literature lists added from the "add a list" dropdown
 export const SOURCES = [];
+export const GROUPS = { via: 'Planned Via fields', top: 'Promising cold-gas fields', custom: 'Custom' };
+export const CUSTOM_COL = '#ffffff';
+export const TOP_COL = '#d8a35a';
+// literature field lists offered by the custom "add a list" dropdown (Bish+19 by default)
+export const EXTRA_LISTS = [{ id: 'bish19', title: 'Bish+19 sightlines', color: CUSTOM_COL }];
 
 function viaItems(svy) {
   const V = D.VIA, out = [];
@@ -55,6 +63,16 @@ function savedItems() {
     meta: `saved field${f.ghi ? ` · G ≤ ${f.ghi}` : ''}`,
   }));
 }
+function bishItems() {
+  const S = D.SIGHT?.bish19;
+  if (!S) return [];
+  return S.name.map((nm, i) => ({
+    lam: S.lam[i], bet: S.bet[i], l: S.l[i], b: S.b[i], fov: 1, ref: i,
+    label: nm.split(' ')[0], sub: `${S.dist[i]} kpc`,
+    meta: `Bish+19 Keck/HIRES Na I + Ca II · g ${S.g[i]} · v_helio ${S.hrv[i]} km/s`,
+    dist: S.dist[i],
+  }));
+}
 function historyItems() {
   const h = histState();
   return h.list.map((f, i) => {
@@ -68,14 +86,18 @@ export function initLists() {
   SOURCES.length = 0;
   if (D.VIA) {
     for (const svy of D.VIA.SVY_KEYS) {
-      SOURCES.push({ id: `via:${svy}`, group: 'Via survey plan', svy,
-        title: `${D.VIA.surveys[svy]} (${svy.toUpperCase()})`, items: () => viaItems(svy) });
+      SOURCES.push({ id: `via:${svy}`, group: 'via', svy, color: SVY_COL[svy],
+        title: `${D.VIA.surveys[svy]} (${svy.toUpperCase()})`, short: SVY_SHORT[svy] ?? svy, items: () => viaItems(svy) });
     }
   }
-  SOURCES.push({ id: 'top', group: 'Promising fields (scan grid)', title: 'Top 20 by distance rungs', items: () => topItems('top') });
-  SOURCES.push({ id: 'topvia', group: 'Promising fields (scan grid)', title: 'Best with a Via stream', items: () => topItems('via') });
-  SOURCES.push({ id: 'saved', group: 'Mine', title: 'Saved fields', items: savedItems });
-  SOURCES.push({ id: 'history', group: 'Mine', title: 'Recently visited', items: historyItems });
+  SOURCES.push({ id: 'top', group: 'top', color: TOP_COL, title: 'Top 20 by distance rungs', short: 'Top 20 by rungs', items: () => topItems('top') });
+  SOURCES.push({ id: 'topvia', group: 'top', color: TOP_COL, title: 'Best with a Via stream', short: 'Best with a Via stream', items: () => topItems('via') });
+  SOURCES.push({ id: 'saved', group: 'custom', color: CUSTOM_COL, title: 'Saved fields', short: 'Saved', items: savedItems });
+  SOURCES.push({ id: 'history', group: 'custom', color: CUSTOM_COL, title: 'Recently visited', short: 'Visited', items: historyItems });
+  for (const x of EXTRA_LISTS) {
+    SOURCES.push({ id: x.id, group: 'custom', color: x.color, title: x.title, short: x.title, extra: true,
+      items: x.id === 'bish19' ? bishItems : () => [] });
+  }
   on('saved', () => { if (state.listSrc.includes('saved')) rebuild(); });
   on('history', () => { if (state.listSrc.includes('history')) rebuild(false); });
   on('ui', () => { if (state.listSrc.some(s => s.startsWith('top'))) rebuild(); invalidateScores(); });
@@ -189,7 +211,7 @@ export function gotoIndex(i, opts = {}) {
   state.listPos = i;
   const it = LIST.order[i];
   if (Math.abs(state.fov - it.fov) > 1e-3) { state.fov = it.fov; emit('ui'); }
-  replaceLock({ kind: 'list', id: `${it.src}:${it.ref}`, name: it.label, svy: it.svy });
+  replaceLock({ kind: 'list', id: `${it.src}:${it.ref}`, name: it.label, svy: it.svy, dist: it.dist });
   slideField(it.lam, it.bet, { keepLock: true });
   emit('list');
 }

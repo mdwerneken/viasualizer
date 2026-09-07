@@ -1,7 +1,7 @@
 // VIAsual v3 — app shell: boot, collapsible sidebar, tabs, field lists + player, saved
-// fields + history (with ⌘Z / ⌘⇧Z), theme, first-run tour, oracle verify.
+// fields + history (with ⌘Z / ⌘⇧Z), first-run tour, oracle verify.
 const DATA_DIR = 'data';
-export const CODE_VERSION = 'v3.0';
+export const CODE_VERSION = 'v3.1';
 
 import { loadCore, loadQuaia, loadHalo, loadKgiants, loadBhb, loadKepler, loadGeha, loadDust, loadDust3d, D } from './data.js';
 import {
@@ -9,9 +9,9 @@ import {
   loadSaved, storeSaved, saveCurrentField, galField, histState, histGo, histSeed,
 } from './state.js';
 import * as C from './compute.js';
-import { initScales, applyTheme, bindHimap, UI, scales, SVY_COL, SVY_SHORT, BG_OPTIONS } from './colors.js';
+import { initScales, applyTheme, bindHimap, UI, scales, SVY_COL, SVY_SHORT } from './colors.js';
 import { initFieldModel, F, recompute } from './fieldmodel.js';
-import { initScene, requestRender, restyle } from './scene3d.js';
+import { initScene, requestRender, restyle, tourCamera } from './scene3d.js';
 import { initFinder } from './panels/finder.js';
 import { initAllsky } from './panels/allsky.js';
 import { initSgrmap } from './panels/sgrmap.js';
@@ -20,11 +20,13 @@ import { initHists } from './panels/hists.js';
 import { initLadder } from './panels/ladder.js';
 import { initStats } from './panels/stats.js';
 import { initPlayer } from './panels/player.js';
-import { initLists, SOURCES, LIST, rebuild, gotoIndex, stepList, setPlaying, isPlaying, currentItem } from './lists.js';
+import { initLists, SOURCES, LIST, GROUPS, EXTRA_LISTS, rebuild, gotoIndex, stepList, setPlaying, isPlaying, currentItem } from './lists.js';
 import { initTour, startTour, tourDone } from './tour.js';
 
 const $ = id => document.getElementById(id);
 const FOV_SNAPS = [1, 2, 3, 5];
+const DEFAULT_FIELD = { lam: -150.147, bet: 10.389 };   // GD-1 × Sagittarius overlap (Matt 8-20-26)
+const LS_EXTRA = 'viasual3_extra_lists';
 
 // ---- along-stream track (port of core.py _build_track / _track_pos) ----------------
 const TRACK = { list: null, stream: null };
@@ -149,7 +151,7 @@ function memCounts() {
   return MEM_COUNTS;
 }
 function syncNoneSel(sel) { sel.classList.toggle('nonesel', sel.value === ''); }
-const sliderLeft = f => `calc(${(f * 100).toFixed(2)}% + ${(7 - 14 * f).toFixed(1)}px)`;
+const sliderLeft = f => `calc(${(f * 100).toFixed(2)}% + ${(6.5 - 13 * f).toFixed(1)}px)`;   // 13 px thumb
 function fovSnapDots() {
   return FOV_SNAPS.map(s => {
     const f = (s - 1) / 4;
@@ -205,22 +207,26 @@ function catalogsHtml() {
   }).join('');
 }
 
-function listSourcesHtml() {
-  const groups = new Map();
-  for (const s of SOURCES) {
-    if (!groups.has(s.group)) groups.set(s.group, []);
-    groups.get(s.group).push(s);
-  }
-  let html = '';
-  for (const [g, srcs] of groups) {
-    html += `<div class="src-group">${g}</div>`;
-    for (const s of srcs) {
-      const n = s.items().length;
-      const dot = s.svy ? `<i class="sw" style="background:${SVY_COL[s.svy]};border-radius:50%"></i>` : '';
-      html += `<label><input type="checkbox" data-src="${s.id}" ${state.listSrc.includes(s.id) ? 'checked' : ''}> ${dot}${s.title}<span class="n">${n}</span></label>`;
-    }
-  }
-  return html;
+// literature lists the user has added to "Custom" from the dropdown (remembered locally)
+const EXTRA_ADDED = new Set();
+function loadExtras() {
+  try { for (const id of JSON.parse(localStorage.getItem(LS_EXTRA) || '[]')) EXTRA_ADDED.add(id); } catch {}
+  for (const id of state.listSrc) if (EXTRA_LISTS.some(x => x.id === id)) EXTRA_ADDED.add(id);
+}
+function storeExtras() { try { localStorage.setItem(LS_EXTRA, JSON.stringify([...EXTRA_ADDED])); } catch {} }
+
+function chipHtml(s) {
+  const n = s.items().length;
+  const x = s.extra ? `<span class="x" data-drop="${s.id}" title="remove this list">×</span>` : '';
+  return `<button class="chip-btn ${state.listSrc.includes(s.id) ? 'on' : ''}" data-src="${s.id}" style="--svy:${s.color}" title="${s.title}">${s.short}<span class="n">${n}</span>${x}</button>`;
+}
+function chipsHtml(group) {
+  return SOURCES.filter(s => s.group === group && (!s.extra || EXTRA_ADDED.has(s.id))).map(chipHtml).join('');
+}
+function addListOptions() {
+  const left = EXTRA_LISTS.filter(x => !EXTRA_ADDED.has(x.id));
+  return `<option value="">add a list from a survey / paper…</option>` +
+    left.map(x => option(x.id, `${x.title} (${SOURCES.find(s => s.id === x.id)?.items().length ?? 0})`)).join('');
 }
 
 function buildSidebar() {
@@ -245,14 +251,16 @@ function buildSidebar() {
   const chk = (id, key, label, sw, title = '') =>
     `<label title="${title}"><input type="checkbox" id="${id}" ${state[key] ? 'checked' : ''}> ${sw ? `<i class="sw ${sw}"></i>` : ''}${label}</label>`;
 
-  $('sidebar-body').innerHTML = `
-  <div id="core-controls">
-    <div class="row"><label>FOV <b id="fov-v">${state.fov.toFixed(1)}</b>° <span class="tiny" id="fov-note"></span></label>
+  $('fov-box').innerHTML = `
+    <div class="row"><label><span>Field of view <b id="fov-v">${state.fov.toFixed(1)}</b>°</span><span class="tiny" id="fov-note"></span></label>
       <div class="fov-wrap">
         <input type="range" id="fov" min="1" max="5" step="0.1" value="${state.fov}">
         ${fovSnapDots()}
       </div>
-    </div>
+    </div>`;
+
+  $('sidebar-body').innerHTML = `
+  <div id="core-controls">
     <div class="row"><label>color stars by</label>
       <select id="mode-sel">
         ${option('dist', 'Distance (kpc)', state.mode === 'dist')}
@@ -290,6 +298,9 @@ function buildSidebar() {
     <div class="row checks"><label class="tiny sec-lab">dwarf member stars</label>
       ${chk('mem-chk', 'memOn', 'Battaglia+22 (Gaia G)', 'mem')}
       ${chk('mem2-chk', 'mem2On', 'Geha+26 (predicted G)', 'mem2')}
+    </div>
+    <div class="row combo">
+      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">show disk <span class="tiny">(R 10 · z 1 kpc, 3D)</span></button>
     </div>
   </details>
 
@@ -342,11 +353,21 @@ function buildSidebar() {
         <button id="hist-fwd" class="micro-btn" title="next field (⌘⇧Z)">▶</button>
       </span>
     </summary>
-    <div class="list-srcs" id="list-srcs">${listSourcesHtml()}</div>
+    <div class="list-top">
+      <button id="ovl-sky" class="cone-btn ${state.viaOn ? 'on' : ''}" style="--cone:#d8a35a" title="draw the active lists' fields on the sky maps and the field view">Sky-map overlay</button>
+      <button id="ovl-3d" class="cone-btn ${state.via3d ? 'on' : ''}" style="--cone:#d8a35a" title="active lists' pointing directions on a 15 kpc shell in the 3D view">3D overlay <span class="tiny">(15 kpc)</span></button>
+    </div>
+    <div class="row checks"><label class="tiny sec-lab">${GROUPS.via}</label></div>
+    <div class="svy-chips" id="chips-via">${chipsHtml('via')}</div>
+    <div class="row checks"><label class="tiny sec-lab">${GROUPS.top}</label></div>
+    <div class="svy-chips" id="chips-top">${chipsHtml('top')}</div>
+    <div class="row checks"><label class="tiny sec-lab">${GROUPS.custom}</label></div>
+    <div class="svy-chips" id="chips-custom">${chipsHtml('custom')}</div>
+    <div class="list-add"><select id="add-list">${addListOptions()}</select></div>
     <div class="row"><label class="sec-lab" id="cand-lab">FIELD IN ACTIVE LIST</label>
       <select id="cand-sel">${NONE_OPT}</select>
     </div>
-    <div class="help">Check one or more lists to open the player under the 3D view. ← → step, space plays, sort by rungs / targets / HI.</div>
+    <div class="help">Toggle one or more lists to open the player under the 3D view. ← → step, space plays, sort by rungs / targets / HI. Via lists are the unique 1° pointings from the visit lists (Cold Gas subsurveys: PLANE 576 · HI_ABS 100 · HVC 100 · EXGAL 98 · SGR 30 · KEPLER 1); "Transients≈" is a seeded random approximation of where Rubin transients will appear.</div>
     <div class="row"><label class="sec-lab">SAVED FIELDS</label>
       <div class="save-row">
         <button id="save-field" class="mini-btn">save current field</button>
@@ -357,65 +378,6 @@ function buildSidebar() {
       </div>
     </div>
     <div id="saved-list"></div>
-  </details>
-
-  <details class="group">
-    <summary>Via survey plan <span class="sum-cap">— planned pointings</span></summary>
-    <div class="row checks">
-      ${chk('via-on-chk', 'viaOn', 'show planned pointings on the maps', '')}
-    </div>
-    <div class="svy-chips" id="svy-chips">
-      ${(D.VIA?.SVY_KEYS ?? []).map(k => `<button class="chip-btn ${state.viaSvy[k] ? 'on' : ''}" data-svy="${k}" style="--svy:${SVY_COL[k]}" title="${D.VIA.surveys[k]}">${SVY_SHORT[k] ?? k} <span class="tiny">${D.VIA.svy.filter(s => s === k).length}</span></button>`).join('')}
-    </div>
-    <div class="row checks">
-      ${chk('via3d-chk', 'via3d', 'pointing directions in 3D (15 kpc shell)', '')}
-    </div>
-    <div class="help">Unique 1° pointings from the Via visit lists. Cold Gas subsurveys: PLANE 576 · HI_ABS 100 · HVC 100 · EXGAL 98 · SGR 30 · KEPLER 1. "Transients≈" is a seeded random approximation of where Rubin transients will appear.</div>
-  </details>
-
-  <details class="group">
-    <summary>Gas &amp; dust <span class="sum-cap">— backgrounds · clouds · sightlines</span></summary>
-    <div class="row"><label>background map (all views)</label><select id="himap-sel">
-      ${BG_OPTIONS.map(([v, t]) => option(v, t, state.himap === v)).join('')}
-    </select></div>
-    <div class="row checks">
-      ${chk('clouds-chk', 'cloudsOn', 'HVC cloud catalogs', 'cloud')}
-      ${chk('hisph-chk', 'hiSphere', 'map shell in 3D', '')}
-    </div>
-    <div class="row checks"><label class="tiny sec-lab">local 3D dust (Edenhofer+24, &lt; 1.25 kpc)</label>
-      ${chk('dust3d-chk', 'dust3dOn', 'dust cloud in 3D', '')}
-      <button id="zoom-local" class="micro-btn" title="fly the camera to within a few kpc of the Sun">zoom to local volume</button>
-      <button id="zoom-halo" class="micro-btn" title="back out to the halo view">halo view</button>
-    </div>
-    <div class="row checks"><label class="tiny sec-lab">cloud catalogs</label>
-      ${chk('cl-hipass', 'cloudHipass', 'HIPASS (S)', '')}
-      ${chk('cl-alfalfa', 'cloudAlfalfa', 'UCHVC', '')}
-      ${chk('cl-gass', 'cloudGass', 'GASS (S)', '')}
-    </div>
-    <div class="row combo"><select id="cloud-filter">
-        <option value="all"${state.cloudFilter === 'all' ? ' selected' : ''}>all clouds</option>
-        <option value="compact"${state.cloudFilter === 'compact' ? ' selected' : ''}>compact only (CHVC + UCHVC)</option>
-        <option value="vhvc"${state.cloudFilter === 'vhvc' ? ' selected' : ''}>very high velocity (|vLSR| ≥ 200)</option>
-      </select>
-      <select id="cloud-color">
-        <option value="none"${state.cloudColor === 'none' ? ' selected' : ''}>one color</option>
-        <option value="vlsr"${state.cloudColor === 'vlsr' ? ' selected' : ''}>color by v_LSR</option>
-        <option value="vgsr"${state.cloudColor === 'vgsr' ? ' selected' : ''}>color by v_GSR</option>
-      </select></div>
-    <div class="row checks"><label class="tiny sec-lab">literature sightlines</label>
-      ${chk('sight-chk', 'sightOn', 'Bish+19 Na I / Ca II BHB sightlines', 'sight')}
-    </div>
-  </details>
-
-  <details class="group">
-    <summary>3D view</summary>
-    <div class="row combo">
-      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">disk (R 10 · z 1 kpc)</button>
-    </div>
-    <div class="row checks">
-      <label><input type="checkbox" id="box-chk" ${state.boxOn ? 'checked' : ''}> ${D.BOX_R} kpc box</label>
-      <label><input type="checkbox" id="hemi-cones" ${state.hemiCones ? 'checked' : ''}> site visibility cones</label>
-    </div>
   </details>
 
   <details class="group">
@@ -450,16 +412,37 @@ function wireSidebar() {
     });
   });
 
-  // field lists
-  $('list-srcs').addEventListener('change', e => {
-    const id = e.target.dataset?.src;
-    if (!id) return;
+  // field lists: chips toggle a list (player + map overlay + 3D shell all follow)
+  const toggleList = (id, on) => {
     const srcs = state.listSrc.filter(s => s !== id);
-    if (e.target.checked) srcs.push(id);
+    if (on) srcs.push(id);
     setPlaying(false);
     set({ listSrc: srcs, listPos: -1 }, 'lists');
     rebuild();
+  };
+  for (const box of ['chips-via', 'chips-top', 'chips-custom']) {
+    $(box).addEventListener('click', e => {
+      const drop = e.target.closest?.('[data-drop]')?.dataset?.drop;
+      if (drop) {
+        e.stopPropagation();
+        EXTRA_ADDED.delete(drop); storeExtras();
+        if (state.listSrc.includes(drop)) toggleList(drop, false);
+        refreshChips();
+        return;
+      }
+      const id = e.target.closest?.('.chip-btn')?.dataset?.src;
+      if (id) toggleList(id, !state.listSrc.includes(id));
+    });
+  }
+  $('add-list').addEventListener('change', e => {
+    const id = e.target.value;
+    if (!id) return;
+    EXTRA_ADDED.add(id); storeExtras();
+    toggleList(id, true);
+    refreshChips();
   });
+  $('ovl-sky').addEventListener('click', e => { const v = !state.viaOn; e.currentTarget.classList.toggle('on', v); set({ viaOn: v }); });
+  $('ovl-3d').addEventListener('click', e => { const v = !state.via3d; e.currentTarget.classList.toggle('on', v); set({ via3d: v }); });
   $('cand-sel').addEventListener('change', e => {
     syncNoneSel(e.target);
     if (e.target.value === '') return;
@@ -495,8 +478,6 @@ function wireSidebar() {
     e.currentTarget.classList.toggle('on', v);
     set({ diskOn: v });
   });
-  $('box-chk').addEventListener('change', e => set({ boxOn: e.target.checked }));
-  $('hemi-cones').addEventListener('change', e => set({ hemiCones: e.target.checked }));
   document.querySelectorAll('.cone-btn[data-cone]').forEach(b => {
     b.classList.toggle('on', !!state[b.dataset.cone]);
     b.addEventListener('click', () => {
@@ -517,13 +498,8 @@ function wireSidebar() {
     ['via-chk', 'via'], ['hl-stream', 'hlStream'], ['via-dg-chk', 'viaDwarfs'], ['hl-dwarf', 'hlDwarf'], ['hl-gc', 'hlGC'],
     ['streams-chk', 'streamsOn'], ['qso-chk', 'qsoOn'], ['gc-chk', 'gcOn'], ['dg-chk', 'dgOn'], ['mem-chk', 'memOn'],
     ['mem2-chk', 'mem2On'], ['halo-chk', 'haloOn'], ['kg-chk', 'kgOn'], ['bhb-chk', 'bhbOn'], ['kep-chk', 'kepOn'],
-    ['clouds-chk', 'cloudsOn'], ['hisph-chk', 'hiSphere'], ['cl-hipass', 'cloudHipass'], ['cl-alfalfa', 'cloudAlfalfa'],
-    ['cl-gass', 'cloudGass'], ['sight-chk', 'sightOn'], ['via-on-chk', 'viaOn'], ['via3d-chk', 'via3d'],
-    ['dust3d-chk', 'dust3dOn'],
   ];
   for (const [id, key] of simple) $(id).addEventListener('change', e => set({ [key]: e.target.checked }));
-  $('zoom-local').addEventListener('click', () => window.dispatchEvent(new CustomEvent('v3-zoom', { detail: 'local' })));
-  $('zoom-halo').addEventListener('click', () => window.dispatchEvent(new CustomEvent('v3-zoom', { detail: 'halo' })));
   $('gc-sel').addEventListener('change', e => {
     syncNoneSel(e.target); dropLock('gc'); set({ gcSel: e.target.value === '' ? null : +e.target.value });
   });
@@ -532,17 +508,6 @@ function wireSidebar() {
     syncNoneSel(e.target); dropLock('dwarf'); set({ dwarfSel: e.target.value === '' ? null : +e.target.value });
   });
   $('dg-go').addEventListener('click', () => { if (state.dwarfSel !== null) gotoDwarf(state.dwarfSel); });
-  $('himap-sel').addEventListener('change', e => set({ himap: e.target.value }));
-  $('cloud-filter').addEventListener('change', e => set({ cloudFilter: e.target.value }));
-  $('cloud-color').addEventListener('change', e => set({ cloudColor: e.target.value }));
-  document.querySelectorAll('#svy-chips .chip-btn').forEach(b => {
-    b.addEventListener('click', () => {
-      const k = b.dataset.svy;
-      const v = !state.viaSvy[k];
-      b.classList.toggle('on', v);
-      set({ viaSvy: { ...state.viaSvy, [k]: v } });
-    });
-  });
 
   $('hist-back').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(-1); });
   $('hist-fwd').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); histGo(1); });
@@ -583,7 +548,9 @@ function wireSidebar() {
   on('field', syncFov);
   on('ui', syncFov);
   on('list', refreshCandidates);
-  on('list', refreshListCounts);
+  on('list', refreshChips);
+  on('lists', refreshChips);
+  on('catalog', refreshChips);
   on('saved', renderSaved);
   on('catalog', refreshCatalogs);
   document.getElementById('dossier').addEventListener('scroll', () => {
@@ -595,13 +562,13 @@ function refreshCatalogs() {
   const el = $('catalog-list');
   if (el) el.innerHTML = catalogsHtml();
 }
-function refreshListCounts() {
-  const box = $('list-srcs');
-  if (!box) return;
-  for (const s of SOURCES) {
-    const lab = box.querySelector(`input[data-src="${s.id}"]`)?.parentElement;
-    if (lab) { lab.querySelector('.n').textContent = s.items().length; lab.querySelector('input').checked = state.listSrc.includes(s.id); }
-  }
+function refreshChips() {
+  if (!$('chips-via')) return;
+  for (const id of state.listSrc) if (EXTRA_LISTS.some(x => x.id === id)) EXTRA_ADDED.add(id);
+  for (const [box, g] of [['chips-via', 'via'], ['chips-top', 'top'], ['chips-custom', 'custom']]) $(box).innerHTML = chipsHtml(g);
+  $('add-list').innerHTML = addListOptions();
+  $('ovl-sky')?.classList.toggle('on', state.viaOn);
+  $('ovl-3d')?.classList.toggle('on', state.via3d);
 }
 
 function syncFov() {
@@ -703,13 +670,6 @@ function setSidebar(open) {
   $('layout').classList.toggle('sb-closed', !open);
   set({ sidebar: open }, 'layout');
 }
-function setTheme(name) {
-  applyTheme(name);
-  $('theme-btn').textContent = name === 'light' ? '☾' : '☀';
-  $('theme-btn').title = name === 'light' ? 'switch to dark' : 'switch to light';
-  set({ theme: name }, 'theme');
-  emit('ui');
-}
 
 // ---- keyboard ---------------------------------------------------------------------------
 function wireKeys() {
@@ -768,15 +728,16 @@ async function boot() {
     await loadCore(DATA_DIR, name => { prog.textContent = `loaded ${name}…`; });
     bindHimap(() => state.himap);
     initScales();
-    state.lam0 = -150.147;      // default field: a GD-1 x Sagittarius overlap (Matt 8-20-26)
-    state.bet0 = 10.389;
+    state.lam0 = DEFAULT_FIELD.lam;
+    state.bet0 = DEFAULT_FIELD.bet;
     state.glo = D.GMIN;
     state.ghi = Math.min(20.0, D.GMAX);
     initHash();                                   // may override from a shared link
     if (!['field', 'sky'].includes(state.tab)) state.tab = 'field';
     if (state.mode === 'dens') state.mode = 'dist';
-    applyTheme(state.theme);
-    $('theme-btn').textContent = state.theme === 'light' ? '☾' : '☀';
+    state.theme = 'dark';
+    applyTheme('dark');
+    loadExtras();
     $('layout').classList.toggle('sb-open', state.sidebar);
     $('layout').classList.toggle('sb-closed', !state.sidebar);
     histSeed();
@@ -792,13 +753,29 @@ async function boot() {
     initAllsky($('allsky-wrap'));
     initSgrmap($('sgrmap-wrap'));
     initPlayer($('player'));
+    let tourOpenedList = false;
     initTour({
+      anchor: () => $('help-btn'),
       openSidebar: () => setSidebar(true),
-      showPlayer: () => { if (!state.listSrc.length) { set({ listSrc: ['via:sps'] }, 'lists'); rebuild(); } },
+      showTab: name => showTab(name),
+      // a consistent start: the default field at 1°, the default 3D orientation
+      reset: () => {
+        showTab('field');
+        if (['stream', 'gc', 'dwarf', 'cone', 'via', 'list'].includes(state.lock?.kind)) replaceLock(null);
+        if (Math.abs(state.fov - 1) > 1e-3) { state.fov = 1; syncFov(); }
+        slideField(DEFAULT_FIELD.lam, DEFAULT_FIELD.bet);
+        tourCamera('reset');
+      },
+      camera: mode => tourCamera(mode),
+      showPlayer: () => { if (!state.listSrc.length) { tourOpenedList = true; set({ listSrc: ['via:sps'] }, 'lists'); rebuild(); } },
+      onEnd: () => {
+        tourCamera('halo');
+        showTab('field');
+        if (tourOpenedList) { tourOpenedList = false; setPlaying(false); set({ listSrc: [], listPos: -1 }, 'lists'); rebuild(); }
+      },
     });
     for (const t of document.querySelectorAll('.tab-btn')) t.addEventListener('click', () => showTab(t.dataset.tab));
     $('sb-toggle').addEventListener('click', () => setSidebar(!state.sidebar));
-    $('theme-btn').addEventListener('click', () => setTheme(state.theme === 'light' ? 'dark' : 'light'));
     $('help-btn').addEventListener('click', startTour);
     wireKeys();
     showTab(state.tab);

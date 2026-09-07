@@ -1,45 +1,58 @@
-// Sky-tab layer controls + a legend that follows what is drawn on the two sky maps.
-// Controls here mirror the same state the sidebar uses (background map, clouds, Via
-// pointings, sightlines, survey cones), so either place can drive them.
+// Sky-tab "Map layers": the gas & dust controls live here, where the maps are shown
+// (background map, HVC cloud catalogs + filters, the 3D map shell / local dust cloud and
+// camera flights), plus a legend that follows what is drawn on the two sky maps.
+// Field-list overlays and survey regions are toggled in the sidebar (Field lists / Go to).
 import { D } from '../data.js';
 import { state, set, on } from '../state.js';
 import { UI, SVY_COL, SVY_SHORT, bgLabel, BG_OPTIONS } from '../colors.js';
+import { LIST, SOURCES } from '../lists.js';
 
 let el;
 export function initLayers(container) {
   el = container;
   render();
   on('ui', render);
+  on('lists', render);
+  on('list', render);
   on('catalog', render);
   on('theme', render);
 }
 
+const opt = (v, t, cur) => `<option value="${v}"${cur === v ? ' selected' : ''}>${t}</option>`;
+const chk = (id, key, label, title = '') =>
+  `<label title="${title}"><input type="checkbox" id="${id}" ${state[key] ? 'checked' : ''}> ${label}</label>`;
+
 function render() {
-  const svyChips = (D.VIA?.SVY_KEYS ?? []).map(k =>
-    `<button class="chip-btn ${state.viaSvy[k] ? 'on' : ''}" data-svy="${k}" style="--svy:${SVY_COL[k]}" title="${D.VIA.surveys[k]}">${SVY_SHORT[k] ?? k}</button>`).join('');
   el.innerHTML = `
     <div class="layer-row"><span class="lab">background</span>
-      <select id="ly-bg">
-        ${BG_OPTIONS.map(([v, t]) => `<option value="${v}"${state.himap === v ? ' selected' : ''}>${t}</option>`).join('')}
-      </select></div>
-    <div class="layer-row"><span class="lab">overlays</span>
-      <label><input type="checkbox" id="ly-via" ${state.viaOn ? 'checked' : ''}> Via pointings</label>
-      <label><input type="checkbox" id="ly-clouds" ${state.cloudsOn ? 'checked' : ''}> HVC clouds</label>
-      <label><input type="checkbox" id="ly-sight" ${state.sightOn ? 'checked' : ''}> sightlines</label>
-      <label><input type="checkbox" id="ly-kep" ${state.coneKepler ? 'checked' : ''}> Kepler</label>
-      <label><input type="checkbox" id="ly-m31" ${state.coneM31 ? 'checked' : ''}> M31</label>
-      <label><input type="checkbox" id="ly-m82" ${state.coneM82 ? 'checked' : ''}> M82</label>
+      <select id="ly-bg">${BG_OPTIONS.map(([v, t]) => opt(v, t, state.himap)).join('')}</select></div>
+    <div class="layer-row"><span class="lab">HVC clouds</span>
+      ${chk('ly-clouds', 'cloudsOn', 'show cloud catalogs')}
+      ${state.cloudsOn ? chk('ly-hipass', 'cloudHipass', 'HIPASS (S)') + chk('ly-alfalfa', 'cloudAlfalfa', 'UCHVC') + chk('ly-gass', 'cloudGass', 'GASS (S)') : ''}
     </div>
-    ${state.viaOn && D.VIA ? `<div class="layer-row"><span class="lab">surveys</span><span class="svy-chips" style="padding:0" id="ly-svy">${svyChips}</span></div>` : ''}
+    ${state.cloudsOn ? `<div class="layer-row sub">
+      <select id="ly-cl-filter" style="flex:1">
+        ${opt('all', 'all clouds', state.cloudFilter)}${opt('compact', 'compact only (CHVC + UCHVC)', state.cloudFilter)}${opt('vhvc', 'very high velocity (|vLSR| ≥ 200)', state.cloudFilter)}
+      </select>
+      <select id="ly-cl-color" style="flex:1">
+        ${opt('none', 'one color', state.cloudColor)}${opt('vlsr', 'color by v_LSR', state.cloudColor)}${opt('vgsr', 'color by v_GSR', state.cloudColor)}
+      </select></div>` : ''}
+    <div class="layer-div"></div>
+    <div class="layer-row"><span class="lab">3D view</span>
+      ${chk('ly-hisph', 'hiSphere', 'map shell', 'the background map on a 10 kpc shell in the 3D view')}
+      ${chk('ly-dust3d', 'dust3dOn', 'local dust cloud', 'Edenhofer+24 3D dust within 1.25 kpc')}
+      <button id="ly-zoom-local" class="micro-btn" title="fly the camera to within a few kpc of the Sun (local dust, Kepler stars)">zoom local</button>
+      <button id="ly-zoom-halo" class="micro-btn" title="back out to the halo view">halo view</button>
+    </div>
     <div class="legend">${legendHtml()}</div>`;
   el.querySelector('#ly-bg').addEventListener('change', e => set({ himap: e.target.value }));
-  const bind = (id, key) => el.querySelector(id).addEventListener('change', e => set({ [key]: e.target.checked }));
-  bind('#ly-via', 'viaOn'); bind('#ly-clouds', 'cloudsOn'); bind('#ly-sight', 'sightOn');
-  bind('#ly-kep', 'coneKepler'); bind('#ly-m31', 'coneM31'); bind('#ly-m82', 'coneM82');
-  el.querySelectorAll('#ly-svy .chip-btn').forEach(b => b.addEventListener('click', () => {
-    const k = b.dataset.svy;
-    set({ viaSvy: { ...state.viaSvy, [k]: !state.viaSvy[k] } });
-  }));
+  const bind = (id, key) => el.querySelector(id)?.addEventListener('change', e => set({ [key]: e.target.checked }));
+  bind('#ly-clouds', 'cloudsOn'); bind('#ly-hipass', 'cloudHipass'); bind('#ly-alfalfa', 'cloudAlfalfa'); bind('#ly-gass', 'cloudGass');
+  bind('#ly-hisph', 'hiSphere'); bind('#ly-dust3d', 'dust3dOn');
+  el.querySelector('#ly-cl-filter')?.addEventListener('change', e => set({ cloudFilter: e.target.value }));
+  el.querySelector('#ly-cl-color')?.addEventListener('change', e => set({ cloudColor: e.target.value }));
+  el.querySelector('#ly-zoom-local').addEventListener('click', () => window.dispatchEvent(new CustomEvent('v3-zoom', { detail: 'local' })));
+  el.querySelector('#ly-zoom-halo').addEventListener('click', () => window.dispatchEvent(new CustomEvent('v3-zoom', { detail: 'halo' })));
 }
 
 function legendHtml() {
@@ -51,8 +64,15 @@ function legendHtml() {
   if (state.dgOn) L.push(lg(UI.dwarf, 'dwarf galaxies', 'fill dia'));
   if (state.dgOn && state.memOn) L.push(lg(UI.member, 'dwarf members', 'fill sq'));
   if (state.cloudsOn) L.push(lg(UI.cloud, state.cloudColor === 'none' ? 'HVC clouds (size = catalog extent)' : `HVC clouds, colored by ${state.cloudColor === 'vlsr' ? 'v_LSR' : 'v_GSR'} (blue → red)`));
-  if (state.viaOn && D.VIA) for (const k of D.VIA.SVY_KEYS) if (state.viaSvy[k]) L.push(lg(SVY_COL[k], `Via ${SVY_SHORT[k] ?? k} pointings (1°)`));
-  if (state.sightOn) L.push(lg(UI.text, 'Bish+19 Na I / Ca II sightlines'));
+  if (state.viaOn) {
+    for (const id of state.listSrc) {
+      const s = SOURCES.find(x => x.id === id);
+      if (!s) continue;
+      if (s.svy) L.push(lg(SVY_COL[s.svy], `Via ${SVY_SHORT[s.svy] ?? s.svy} pointings (1°)`));
+      else if (id === 'bish19') L.push(lg(UI.text, 'Bish+19 Na I / Ca II sightlines'));
+      else L.push(lg(s.color, `${s.title} (field list)`));
+    }
+  }
   for (const c of D.CONES) if (state[c.key]) L.push(lg(c.color, `${c.name} survey region (${c.fov}°)`));
   L.push(lg(UI.accent, 'current field'));
   return L.join('');
