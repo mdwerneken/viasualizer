@@ -1,7 +1,59 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<title>VIAsual — moved</title>
-<script>location.replace('../' + location.hash);</script>
-</head><body style="background:#0b0f16;color:#8b96a8;font-family:sans-serif;padding:2em">
-VIAsual v2 now lives at the <a href="../" style="color:#e05252">main URL</a> — redirecting…
-</body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIAsual v2 (frozen 9-6-26) — Via halo sightline planner</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🌌</text></svg>">
+<link rel="stylesheet" href="css/style.css?v=2.6">
+<script type="importmap">
+  { "imports": { "three": "./js/vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="loading">
+  <div class="load-card">
+    <div class="load-title">VIAsual</div>
+    <div class="load-sub">Via halo sightline planner — streams · GCs · dwarfs · quasars · HI</div>
+    <div id="load-progress">starting…</div>
+  </div>
+</div>
+
+<div id="layout">
+  <aside id="sidebar"></aside>
+
+  <main id="main">
+    <div id="scene"></div>
+    <div id="bottom-bar"></div>
+  </main>
+
+  <section id="dossier">
+    <nav id="tabs">
+      <button class="tab-btn" data-tab="field">Field</button>
+      <button class="tab-btn" data-tab="sky">Sky</button>
+    </nav>
+    <div class="tab-page" data-tab="field">
+      <div id="finder-wrap"></div>
+      <div id="ladder-wrap"></div>
+      <div id="stats-wrap"></div>
+      <div id="hists-wrap"></div>
+    </div>
+    <div class="tab-page" data-tab="sky" style="display:none">
+      <div id="allsky-wrap"></div>
+      <div id="sgrmap-wrap"></div>
+    </div>
+  </section>
+</div>
+
+<div id="tooltip3d" class="tooltip"></div>
+<div id="tooltip2d" class="tooltip"></div>
+
+<footer id="credit">
+  <a href="https://via-project.org" target="_blank" rel="noopener">The Via Project</a> ·
+  <a href="../v1/" title="original app">v1</a> ·
+  <a href="https://github.com/mdwerneken/viasual" target="_blank" rel="noopener">source</a>
+</footer>
+
+<script type="module" src="js/app.js?v=2.6"></script>
+</body>
+</html>

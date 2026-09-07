@@ -429,7 +429,7 @@ async function boot() {
     const EXPECT = 7.5e6;                       // rough core-data byte total for the bar
     let got = 0;
     const bump = (n) => { got += n; setLoad("downloading catalogs…", 0.1 + 0.35 * Math.min(1, got / EXPECT)); };
-    const dataPromise = Promise.all(DATA_FILES.map((f) => fetchCached("../data/" + f + "?" + DATA_VERSION, bump)));
+    const dataPromise = Promise.all(DATA_FILES.map((f) => fetchCached("../v2/data/" + f + "?" + DATA_VERSION, bump)));
     const corePromise = fetchCached("py/core.py?" + CODE_VERSION);
 
     const pyodide = await pyodidePromise;
@@ -489,7 +489,7 @@ async function boot() {
     // quasars stream in after first paint (17 MB)
     $("qso-status").textContent = "loading 1.3M quasars…";
     try {
-      const qb = await fetchCached("../data/quaia.npz?" + DATA_VERSION);
+      const qb = await fetchCached("../v2/data/quaia.npz?" + DATA_VERSION);
       pyodide.FS.writeFile("/data/quaia.npz", qb);
       const n = py.load_quaia("/data");
       $("qso-status").textContent = `${(n / 1e6).toFixed(2)}M quasars ready`;
