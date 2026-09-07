@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIAsualizer — Via halo sightline explorer</title>
 <link rel="icon" type="image/png" href="img/favicon.png">
-<link rel="stylesheet" href="css/style.css?v=3.1">
+<link rel="stylesheet" href="css/style.css?v=3.2">
 <script type="importmap">
   { "imports": { "three": "./js/vendor/three.module.min.js" } }
 </script>
@@ -54,17 +54,15 @@
       </div>
       <div class="panel" id="p-ladder">
         <div class="panel-head"><span class="panel-title">Distance ladder</span>
-          <span class="panel-cap">distinct distances sampled by backlights in this field — one rung per structure, quasars at ∞; hover a rung to pop it out</span></div>
+          <span class="panel-cap">distance bins sampled in this field. hover icon to focus</span></div>
         <div id="ladder-wrap"></div>
       </div>
       <div class="panel" id="p-stats">
-        <div class="panel-head"><span class="panel-title">Targets &amp; fiber budget</span>
-          <span class="panel-cap">every source a Via pointing here could observe, by catalog, against the 540 science fibers</span></div>
+        <div class="panel-head"><span class="panel-title">Targets</span></div>
         <div id="stats-wrap"></div>
       </div>
       <div class="panel" id="p-hists">
-        <div class="panel-head"><span class="panel-title">Field statistics</span>
-          <span class="panel-cap">distances, backlights behind each distance, magnitudes and fiber crowding of the sources in the field</span></div>
+        <div class="panel-head"><span class="panel-title">Field stats</span></div>
         <div id="hists-wrap"></div>
       </div>
     </div>
@@ -99,6 +97,6 @@
   <a href="https://github.com/mdwerneken/viasual-app" target="_blank" rel="noopener">source</a>
 </footer>
 
-<script type="module" src="js/app.js?v=3.1"></script>
+<script type="module" src="js/app.js?v=3.2"></script>
 </body>
 </html>

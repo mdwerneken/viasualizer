@@ -17,7 +17,7 @@ export const GROUPS = { via: 'Planned Via fields', top: 'Promising cold-gas fiel
 export const CUSTOM_COL = '#ffffff';
 export const TOP_COL = '#d8a35a';
 // literature field lists offered by the custom "add a list" dropdown (Bish+19 by default)
-export const EXTRA_LISTS = [{ id: 'bish19', title: 'Bish+19 sightlines', color: CUSTOM_COL }];
+export const EXTRA_LISTS = [{ id: 'bish19', title: 'Bish+19 sightlines', short: 'Bish+19', color: CUSTOM_COL }];
 
 function viaItems(svy) {
   const V = D.VIA, out = [];
@@ -86,6 +86,7 @@ export function initLists() {
   SOURCES.length = 0;
   if (D.VIA) {
     for (const svy of D.VIA.SVY_KEYS) {
+      if (svy === 'rbs') continue;    // 4 placeholder rows in the rbs visit list — folded into 'tfs' (Matt 9-7-26)
       SOURCES.push({ id: `via:${svy}`, group: 'via', svy, color: SVY_COL[svy],
         title: `${D.VIA.surveys[svy]} (${svy.toUpperCase()})`, short: SVY_SHORT[svy] ?? svy, items: () => viaItems(svy) });
     }
@@ -95,7 +96,7 @@ export function initLists() {
   SOURCES.push({ id: 'saved', group: 'custom', color: CUSTOM_COL, title: 'Saved fields', short: 'Saved', items: savedItems });
   SOURCES.push({ id: 'history', group: 'custom', color: CUSTOM_COL, title: 'Recently visited', short: 'Visited', items: historyItems });
   for (const x of EXTRA_LISTS) {
-    SOURCES.push({ id: x.id, group: 'custom', color: x.color, title: x.title, short: x.title, extra: true,
+    SOURCES.push({ id: x.id, group: 'custom', color: x.color, title: x.title, short: x.short ?? x.title, extra: true,
       items: x.id === 'bish19' ? bishItems : () => [] });
   }
   on('saved', () => { if (state.listSrc.includes('saved')) rebuild(); });

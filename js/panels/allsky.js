@@ -21,7 +21,6 @@ let dragging = false;
 let hoverObj = null;
 
 const MX = 2 * C.SQ2 * 1.02, MY = C.SQ2 * 1.05;
-const MAGELLANIC = [{ name: 'LMC', rDeg: 5.4 }, { name: 'SMC', rDeg: 2.6 }];
 
 export function initAllsky(container) {
   wrap = container;
@@ -155,6 +154,7 @@ function buildBg(w, h) {
 
 let starCache = null, starCacheKey = '';
 function buildStarLayer(w, h) {
+  const gl = expander?.isExpanded() ? 1.9 : 1;   // GC / dwarf glyph scale when enlarged
   const key = [w, h, state.via, state.streamsOn, state.hlStream && state.streamSel,
     state.memOn, state.mem2On, state.gcOn, state.dgOn, state.viaDwarfs,
     state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel, state.himap, UI.themeName, !!D.MEM2, !!D.DUST].join('|');
@@ -189,29 +189,6 @@ function buildStarLayer(w, h) {
     }
     ctx.globalAlpha = 1;
   }
-  if (state.dgOn && state.memOn) {
-    for (const mc of MAGELLANIC) {
-      const i = D.DWF.name.indexOf(mc.name);
-      if (i < 0) continue;
-      const [mx, my] = C.mollXY(D.DWF.l[i], D.DWF.b[i]);
-      const [X, Y] = toPx(mx, my);
-      ctx.globalAlpha = 0.22;
-      ctx.fillStyle = UI.dwarf;
-      ctx.beginPath();
-      ctx.arc(X, Y, Math.max(3, mc.rDeg * map.sx * 0.049), 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-    ctx.fillStyle = UI.member;
-    ctx.globalAlpha = 0.7;
-    for (let i = 0; i < D.MEM.lam.length; i += 2) {
-      if (state.viaDwarfs && !(D.MEM.dist[i] < 300)) continue;
-      const [mx, my] = C.mollXY(D.MEM.l[i], D.MEM.b[i]);
-      const [X, Y] = toPx(mx, my);
-      ctx.fillRect(X, Y, 1.6, 1.6);
-    }
-    ctx.globalAlpha = 1;
-  }
   if (state.dgOn && state.mem2On && D.MEM2) {
     ctx.fillStyle = UI.member2;
     ctx.globalAlpha = 0.7;
@@ -227,7 +204,7 @@ function buildStarLayer(w, h) {
     for (let i = 0; i < D.GCC.lam.length; i++) {
       const [mx, my] = C.mollXY(D.GCC.l[i], D.GCC.b[i]);
       const [X, Y] = toPx(mx, my);
-      hexagram(ctx, X, Y, i === sel ? 6 : 3.4, i === sel ? UI.accent : UI.gc, '#00000088');
+      hexagram(ctx, X, Y, (i === sel ? 6 : 3.4) * gl, i === sel ? UI.accent : UI.gc, '#00000088');
       if (i === sel) label(ctx, D.GCC.name[i], X + 7, Y + 3, { size: 8.5, color: UI.accent });
     }
   }
@@ -237,7 +214,7 @@ function buildStarLayer(w, h) {
       if (state.viaDwarfs && !(D.DWF.dist[i] < 300)) continue;
       const [mx, my] = C.mollXY(D.DWF.l[i], D.DWF.b[i]);
       const [X, Y] = toPx(mx, my);
-      diamond(ctx, X, Y, i === sel ? 6 : 3.2, i === sel ? UI.accent : UI.dwarf, '#00000088');
+      diamond(ctx, X, Y, (i === sel ? 6 : 3.2) * gl, i === sel ? UI.accent : UI.dwarf, '#00000088');
       if (i === sel) label(ctx, D.DWF.name[i], X + 7, Y + 3, { size: 8.5, color: UI.accent });
     }
   }

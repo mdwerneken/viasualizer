@@ -22,7 +22,7 @@ export const state = {
   viaDwarfs: false,            // dwarfs: only those < 300 kpc (placeholder Via list)
   himap: 'total',              // background: total | hvc | overlay | dust
   hiSphere: false,             // HI shell in 3D
-  coneKepler: true, coneM31: false, coneM82: false, // survey cones (independent)
+  coneKepler: false, coneM31: false, coneM82: false, // survey cones (independent; all off by default since 9-7-26)
   hemiCones: false,            // MMT/Magellan visibility cones (no UI since 9-7-26)
   theme: 'dark',               // whole-app theme (light mode retired 9-7-26)
   boxOn: false,                // 100 kpc reference box (no UI since 9-7-26)
@@ -81,7 +81,7 @@ export function syncListFlags() {
 }
 
 // ---- persisted preferences (sidebar, layer toggles) ---------------------------------
-const PREF_KEYS = ['sidebar', 'viaOn', 'via3d', 'himap', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
+const PREF_KEYS = ['sidebar', 'viaOn', 'via3d', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
   'cloudsOn', 'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'diskOn', 'listSort'];
 let prefTimer = null;
 function savePrefs() {

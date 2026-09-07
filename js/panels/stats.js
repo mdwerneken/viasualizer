@@ -75,8 +75,6 @@ function render() {
   if (D.QSO && state.qsoOn) {
     L.push(`<div><b>${red(F.qq.length, KIND.QSO)} ${plural(F.qq.length, 'quasar')}</b></div>`);
   } else if (!D.QSO && state.qsoOn) L.push(`<div><span class="tiny">quasars loading…</span></div>`);
-  L.push(fiberHtml());
-
   // gas + dust along the sightline
   const gas = [];
   if (F.hiTotal) gas.push(`log N(HI) <b>${Math.log10(F.hiTotal.mean).toFixed(2)}</b> mean · ${Math.log10(F.hiTotal.peak).toFixed(2)} peak`);
@@ -92,6 +90,7 @@ function render() {
     } else gas.push(`no cataloged HVC clouds overlap the field`);
   }
   if (gas.length) L.push(`<div class="gasline">${gas.join('<br>')}</div>`);
+  L.push(fiberHtml());
 
   // Via planned pointings overlapping this field
   if (D.VIA && state.viaOn) {

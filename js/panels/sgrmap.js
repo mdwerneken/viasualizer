@@ -115,6 +115,7 @@ function buildBg(w, h) {
 
 let starCache = null, starCacheKey = '';
 function buildStarLayer(w, h) {
+  const gl = expander?.isExpanded() ? 1.9 : 1;
   const key = [w, h, state.via, state.streamsOn, state.hlStream && state.streamSel,
     state.gcOn, state.dgOn, state.viaDwarfs, state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel,
     state.himap, UI.themeName, !!D.DUST].join('|');
@@ -156,7 +157,7 @@ function buildStarLayer(w, h) {
     for (let i = 0; i < D.GCC.lam.length; i++) {
       if (Math.abs(D.GCC.bet[i]) > 32) continue;
       const [X, Y] = toPx(D.GCC.lam[i], D.GCC.bet[i]);
-      hexagram(ctx, X, Y, i === sel ? 6.5 : 3.6, i === sel ? UI.accent : UI.gc, '#00000088');
+      hexagram(ctx, X, Y, (i === sel ? 6.5 : 3.6) * gl, i === sel ? UI.accent : UI.gc, '#00000088');
       if (i === sel) label(ctx, D.GCC.name[i], X + 8, Y + 3, { size: 8.5, color: UI.accent });
     }
   }
@@ -166,7 +167,7 @@ function buildStarLayer(w, h) {
       if (Math.abs(D.DWF.bet[i]) > 32) continue;
       if (state.viaDwarfs && !(D.DWF.dist[i] < 300)) continue;
       const [X, Y] = toPx(D.DWF.lam[i], D.DWF.bet[i]);
-      diamond(ctx, X, Y, i === sel ? 6.2 : 3.4, i === sel ? UI.accent : UI.dwarf, '#00000088');
+      diamond(ctx, X, Y, (i === sel ? 6.2 : 3.4) * gl, i === sel ? UI.accent : UI.dwarf, '#00000088');
       if (i === sel) label(ctx, D.DWF.name[i], X + 8, Y + 3, { size: 8.5, color: UI.accent });
     }
   }

@@ -29,10 +29,12 @@ link (path and hash preserved) to `/viasual-app/`.
   sightlines (a custom field list), Via planned pointings as toggleable field lists (off by default).
 - **UI (v3.1, 9-7-26).** Warm charcoal chrome around v2's deep-navy 3D scene (light mode retired),
   VIAsualizer wordmark + Tutorial button, collapsible control sidebar, labeled right-hand panels,
-  FOV slider under the field view, one **Field lists** section that drives the player, the sky-map
-  overlay and the 3D shell (Planned Via fields · Promising cold-gas fields · Custom, plus an
-  "add a list" dropdown seeded with Bish+19), gas & dust controls on the Sky tab with an automatic
-  legend, a 6-step interactive tour that flies out of / back into the Tutorial button, ⌘Z / ⌘⇧Z
+  FOV slider under the field view, **Focus on object** (Via streams grouped first; highlight toggles;
+  along-stream scan parametrised by great-circle azimuth so Sagittarius works), **Save fields**, one
+  **Field lists** section that drives the player, the 2D-map overlay and the 3D shell (Planned Via
+  fields · Promising cold-gas fields · Custom, plus an "add fields" dropdown seeded with Bish+19),
+  gas & dust controls on the Sky tab with an automatic legend, a 6-step interactive tour that dims
+  the 3D scene around the Sun + arrow and flies out of / back into the Tutorial button, ⌘Z / ⌘⇧Z
   undo/redo of field moves, scroll-wheel FOV on the field view (small or enlarged),
   importance-scaled finder glyphs, a "backlights behind distance d" plot, camera flights to the
   local volume.

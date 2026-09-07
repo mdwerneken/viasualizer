@@ -6,17 +6,17 @@ const LS_TOUR = 'viasual3_tour_done';
 
 const STEPS = [
   { sel: null, title: 'Explore halo sightlines',
-    text: 'This is a tool for exploring Via fields in the MW halo, with particular interest in the Cold Gas Survey. You can change which objects are shown, find and save interesting fields, and learn about the 3D distribution of known (or best-estimate) halo sources.' },
+    text: 'This is a tool for exploring Via fields in the halo. You can change which objects are shown, find and save interesting fields, and learn about the 3D distribution of known (or best-estimate) halo sources.' },
   { sel: '#scene', title: '3D view (interactive)', cam: 'sun',
-    text: 'The red arrow shows the field direction, and can be dragged. Click and drag anywhere to rotate, right-click to pan, scroll to zoom. Click an object to pin its label, and double-click to point at it.' },
+    text: 'Red arrow shows the field direction, and can be dragged. Click and drag anywhere to rotate, right-click to pan, scroll to zoom. Click an object to pin its label, and double-click to point at it.' },
   { sel: '#p-finder', title: 'Field view (interactive)', tab: 'field',
-    text: 'The projected field (default 1°), showing stars and quasars on a background map (default HI). Drag to pan, hover objects for info, double-click to center, or expand to full screen.' },
-  { sel: '#sidebar', title: 'Controls', open: true,
-    text: 'Select objects based on brightness, type, catalog, and more. Change and save fields. Press ☰ to collapse.' },
-  { sel: '#player', title: 'Scroll through selected fields', prep: 'player',
-    text: 'Such as Via\'s planned pointings, best-ranked cold gas fields, or custom field lists. Sort and scroll through easily.' },
+    text: 'Projected field (default 1°), showing stars and quasars on a background map (default HI). Drag to pan, hover objects for info, double-click to center, or expand to full screen.' },
   { sel: '[data-tab="sky"]', title: 'Sky maps', tab: 'sky',
     text: 'The all-sky view in Galactic and Sagittarius-Stream coordinates. Click anywhere to point there.' },
+  { sel: '#sidebar', title: 'Controls', open: true, tab: 'field',
+    text: 'Select objects based on brightness, type, catalog, and more. Change and save fields. Press ☰ to collapse.' },
+  { sel: '#player', title: 'Scroll through selected fields', prep: 'player',
+    text: 'Sort and scroll through Via\'s planned pointings, best-ranked cold gas fields, or custom field lists.' },
 ];
 
 let idx = 0, root, spot, card, shades = [], hooks = {};
@@ -142,7 +142,7 @@ function place() {
   const s = STEPS[idx];
   const target = s.sel ? document.querySelector(s.sel) : null;
   const vw = window.innerWidth, vh = window.innerHeight;
-  const cw = 320, ch = card.offsetHeight || 170;
+  const cw = 480, ch = card.offsetHeight || 250;
   if (!target || target.hidden || target.getClientRects().length === 0) {
     setShades(vw / 2, vh / 2, vw / 2, vh / 2);
     spot.style.left = `${vw / 2}px`; spot.style.top = `${vh / 2}px`; spot.style.width = '0px'; spot.style.height = '0px';

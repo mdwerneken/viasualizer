@@ -44,6 +44,7 @@ const STAR_VS = `
     gl_Position = projectionMatrix * mv;
   }`;
 const STAR_FS = `
+  uniform float uDim;
   varying float vAlpha;
   varying vec3 vColor;
   void main() {
@@ -51,10 +52,11 @@ const STAR_FS = `
     float r2 = dot(c, c);
     if (r2 > 0.25) discard;
     float soft = smoothstep(0.25, 0.12, r2);
-    gl_FragColor = vec4(vColor, vAlpha * soft);
+    gl_FragColor = vec4(vColor, vAlpha * soft * uDim);
     if (gl_FragColor.a < 0.01) discard;
   }`;
 const DIAMOND_FS = `
+  uniform float uDim;
   varying float vAlpha;
   varying vec3 vColor;
   void main() {
@@ -62,10 +64,11 @@ const DIAMOND_FS = `
     float m = c.x + c.y;
     if (m > 0.5) discard;
     float soft = smoothstep(0.5, 0.38, m);
-    gl_FragColor = vec4(vColor, vAlpha * soft);
+    gl_FragColor = vec4(vColor, vAlpha * soft * uDim);
     if (gl_FragColor.a < 0.01) discard;
   }`;
 const HEXAGRAM_FS = `
+  uniform float uDim;
   varying float vAlpha;
   varying vec3 vColor;
   void main() {
@@ -75,21 +78,41 @@ const HEXAGRAM_FS = `
     vec2 q = -p;
     bool t2 = q.y >= -0.25 && q.y <= 0.5 - 1.732 * abs(q.x);
     if (!t1 && !t2) discard;
-    gl_FragColor = vec4(vColor, vAlpha);
+    gl_FragColor = vec4(vColor, vAlpha * uDim);
     if (gl_FragColor.a < 0.01) discard;
   }`;
 const RING_FS = `
+  uniform float uDim;
   varying float vAlpha;
   varying vec3 vColor;
   void main() {
     vec2 c = gl_PointCoord - 0.5;
     float r2 = dot(c, c);
     if (r2 > 0.25 || r2 < 0.12) discard;
-    gl_FragColor = vec4(vColor, vAlpha);
+    gl_FragColor = vec4(vColor, vAlpha * uDim);
   }`;
 
+const POINT_MATS = new Set();
 function makePointsMaterial(fs = STAR_FS) {
-  return new THREE.ShaderMaterial({ vertexShader: STAR_VS, fragmentShader: fs, transparent: true, depthWrite: false });
+  const m = new THREE.ShaderMaterial({ vertexShader: STAR_VS, fragmentShader: fs, transparent: true, depthWrite: false,
+    uniforms: { uDim: { value: 1 } } });
+  POINT_MATS.add(m);
+  return m;
+}
+// tour: fade everything except the Sun and the arrow (points via a shader uniform,
+// translucent meshes via their opacity)
+const DIM_MESH = [];   // [mesh, baseOpacity]
+let dimF = 1;
+function setDim(f) {
+  for (const m of POINT_MATS) m.uniforms.uDim.value = f;
+  if (!DIM_MESH.length) {
+    DIM_MESH.push([disk, disk.material.opacity]);
+    for (const m of conesGroup?.children ?? []) DIM_MESH.push([m, m.material.opacity]);
+  }
+  for (const [m, o] of DIM_MESH) m.material.opacity = o * f;
+  dimF = f;
+  if (hiSphere) hiSphere.material.opacity = f;
+  needsRender = true;
 }
 
 export function initScene(container) {
@@ -493,9 +516,9 @@ function flyTo(which, { resetDir = false } = {}) {
 window.addEventListener('v3-zoom', e => flyTo(e.detail));
 // tour: reset to the default orientation; the 3D step closes in on the Sun with a bold arrow
 export function tourCamera(mode) {
-  if (mode === 'reset') { bold = 1; flyTo('halo', { resetDir: true }); }
-  else if (mode === 'sun') { bold = 2.6; flyTo('tour', { resetDir: true }); }
-  else { bold = 1; flyTo('halo'); }
+  if (mode === 'reset') { bold = 1; setDim(1); flyTo('halo', { resetDir: true }); }
+  else if (mode === 'sun') { bold = 2.6; setDim(0.16); flyTo('tour', { resetDir: true }); }
+  else { bold = 1; setDim(1); flyTo('halo'); }
   updatePointer();
   needsRender = true;
 }
@@ -662,6 +685,7 @@ function updateHiSphere() {
     hiSphere = new THREE.Mesh(hiShellGeometry(10), mat);
     hiSphere.userData.key = key;
     hiSphere.renderOrder = -5;
+    mat.opacity = dimF;
     scene.add(hiSphere);
   }
   hiSphere.visible = true;

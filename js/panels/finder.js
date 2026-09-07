@@ -20,6 +20,7 @@ let hitList = [];
 let hiStretch = null;
 let hilite = null;
 let liveMove = false;
+let lastCover = 0;
 
 export function initFinder(container) {
   wrap = container;
@@ -84,14 +85,13 @@ function draw() {
 
   if (state.fov > 1.001 && !liveMove) {
     const pts = allSourceXiEta();
-    if (pts) {
-      const cov = coverPointings(pts.xi, pts.eta);
-      for (const [cxc, cyc] of cov) {
-        const [X, Y] = toPx(cxc, cyc);
-        circleOutline(ctx, X, Y, 30 * px.scale, UI.themeName === 'light' ? 'rgba(40,40,40,0.5)' : 'rgba(255,255,255,0.55)', 1.1);
-      }
+    const cov = pts ? coverPointings(pts.xi, pts.eta) : [];
+    for (const [cxc, cyc] of cov) {
+      const [X, Y] = toPx(cxc, cyc);
+      circleOutline(ctx, X, Y, 30 * px.scale, UI.themeName === 'light' ? 'rgba(40,40,40,0.5)' : 'rgba(255,255,255,0.55)', 1.1);
     }
-  }
+    if (cov.length !== lastCover) { lastCover = cov.length; emit('cover', cov.length); }
+  } else if (state.fov <= 1.001 && lastCover) { lastCover = 0; emit('cover', 0); }
   drawSources(ctx);
   ctx.restore();
 
@@ -293,8 +293,8 @@ function glyphSizes() {
   const big = expander?.isExpanded() ? 1.35 : 1;
   const s = n < 60 ? 1.0 : n < 250 ? 0.8 : n < 800 ? 0.62 : n < 2500 ? 0.45 : 0.32;
   return {
-    viaStar: Math.max(3.2, 9.5 * s) * big,     // Via core-stream stars: the critical targets
-    star: Math.max(2.2, 6.5 * s) * big,
+    viaStar: Math.max(4.5, 12 * s) * big,      // stream stars: one (large) size, Via or not (Matt 9-7-26)
+    star: Math.max(4.5, 12 * s) * big,
     tracer: Math.max(2.0, 4.6 * s) * big,
     member: Math.max(2.0, 4.6 * s) * big,
     qso: Math.max(2.0, 4.2 * s) * big,

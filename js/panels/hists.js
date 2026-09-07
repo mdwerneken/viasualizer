@@ -192,7 +192,7 @@ function drawBehind() {
   const plot = { x: 38, y: 18, w: w - 48, h: h - 50 };
   rec.bars = [];
   label(ctx, 'backlights behind distance d', plot.x, 12, { size: 10, color: UI.text });
-  label(ctx, 'sightlines that would pass through gas at d', w - 8, 12, { size: 8.5, align: 'right', color: UI.textDim });
+  label(ctx, 'sources farther than d', w - 8, 12, { size: 8.5, align: 'right', color: UI.textDim });
   const dist = F.src.dist, kinds = F.src.kind;
   const nQ = F.qq.length;
   const fin = [];
@@ -269,6 +269,7 @@ function drawBehind() {
   label(ctx, 'N behind', 4, plot.y + 8, { size: 8, color: UI.textDim });
 }
 
+const FIBER_MIN_SEP = 1.2;   // arcmin — minimum fiber separation (Matt's estimate 9-7-26; adjust when confirmed)
 function drawNN() {
   const rec = els.nn;
   const cvs = rec.cvs;
@@ -280,18 +281,14 @@ function drawNN() {
   const plot = { x: 34, y: 18, w: w - 44, h: h - 46 };
   rec.bars = [];
   if (!F.nn) {
-    label(ctx, 'fiber crowding — nearest-neighbour separation', plot.x, 12, { size: 10, color: UI.text });
+    label(ctx, 'fiber crowding', plot.x, 12, { size: 10, color: UI.text });
     label(ctx, F.src.n > 2500 ? 'skipped while dragging' : 'fewer than 2 sources', w / 2, h / 2, { align: 'center', color: UI.textDim });
     return;
   }
   const sep = F.nn.sepAm;
-  const med = C.median(sep);
-  let close = 0;
-  for (let i = 0; i < sep.length; i++) if (sep[i] < 1) close++;
-  label(ctx, `fiber crowding — nearest-neighbour separation`, plot.x, 12, { size: 10, color: UI.text });
-  label(ctx, `median ${med.toFixed(2)}′ · ${close} closer than 1′`, w - 8, 12, { size: 8.5, align: 'right', color: UI.textDim });
+  label(ctx, `fiber crowding`, plot.x, 12, { size: 10, color: UI.text });
   const mm = C.finiteMinMax(sep);
-  let lo = Math.floor(mm[0]), hi = Math.ceil(mm[1]);
+  let lo = Math.min(0, Math.floor(mm[0])), hi = Math.ceil(Math.max(mm[1], FIBER_MIN_SEP + 0.5));
   if (hi <= lo) hi = lo + 1;
   const nb = 40;
   const hist = C.histogram(sep, nb, lo, hi);
@@ -313,4 +310,11 @@ function drawNN() {
   const toX = v => plot.x + (v - lo) / (hi - lo) * plot.w;
   xTicks(ctx, plot, h, lo, hi, toX);
   yTicks(ctx, plot, maxC);
+  // fibers cannot be placed closer than this: sources left of the line collide
+  const xc = toX(FIBER_MIN_SEP);
+  ctx.strokeStyle = UI.accent; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(xc, plot.y); ctx.lineTo(xc, plot.y + plot.h); ctx.stroke();
+  let close = 0;
+  for (let i = 0; i < sep.length; i++) if (sep[i] < FIBER_MIN_SEP) close++;
+  label(ctx, `fiber collision < ${FIBER_MIN_SEP}′ (${close})`, xc + 4, plot.y + 10, { size: 8.5, color: UI.accent });
 }

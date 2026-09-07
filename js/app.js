@@ -31,50 +31,43 @@ const LS_EXTRA = 'viasual3_extra_lists';
 // ---- along-stream track (port of core.py _build_track / _track_pos) ----------------
 const TRACK = { list: null, stream: null };
 function buildTrack(sel, nbin = 40) {
-  const idx = [];
-  for (let i = 0; i < D.N; i++) if (D.streamName(i) === sel) idx.push(i);
-  if (idx.length < 5) {
-    let m = [0, 0, 0];
-    for (const i of idx) { m[0] += D.UG_SGR[3 * i]; m[1] += D.UG_SGR[3 * i + 1]; m[2] += D.UG_SGR[3 * i + 2]; }
-    const n = Math.hypot(...m) || 1;
-    return [[0, [m[0] / n, m[1] / n, m[2] / n]]];
+  const us = [];
+  for (let i = 0; i < D.N; i++) if (D.streamName(i) === sel) us.push([D.UG_SGR[3 * i], D.UG_SGR[3 * i + 1], D.UG_SGR[3 * i + 2]]);
+  const norm = v => { const n = Math.hypot(...v) || 1; return [v[0] / n, v[1] / n, v[2] / n]; };
+  if (us.length < 5) {
+    const m = [0, 0, 0];
+    for (const u of us) { m[0] += u[0]; m[1] += u[1]; m[2] += u[2]; }
+    return [[0, norm(m)]];
   }
-  const cv = [0, 0, 0];
-  for (const i of idx) { cv[0] += D.UG_SGR[3 * i]; cv[1] += D.UG_SGR[3 * i + 1]; cv[2] += D.UG_SGR[3 * i + 2]; }
-  const cn = Math.hypot(...cv);
-  const c = [cv[0] / cn, cv[1] / cn, cv[2] / cn];
+  // pole of the best-fit great circle = smallest-eigenvalue direction of the scatter
+  // matrix (power iteration on tr(S)·I − S); the old tangent-plane projection folded
+  // Sagittarius, which wraps most of the sky (Matt 9-7-26)
   const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  const tps = [];
-  for (const i of idx) {
-    const u = [D.UG_SGR[3 * i], D.UG_SGR[3 * i + 1], D.UG_SGR[3 * i + 2]];
-    const d = u[0] * c[0] + u[1] * c[1] + u[2] * c[2];
-    const t = [u[0] - d * c[0], u[1] - d * c[1], u[2] - d * c[2]];
-    tps.push([t, u]);
-    for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) S[a][b] += t[a] * t[b];
+  for (const u of us) for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) S[a][b] += u[a] * u[b];
+  const tr = S[0][0] + S[1][1] + S[2][2];
+  let p = [0.31, 0.53, 0.79];
+  for (let k = 0; k < 80; k++) {
+    p = norm([tr * p[0] - (S[0][0] * p[0] + S[0][1] * p[1] + S[0][2] * p[2]),
+              tr * p[1] - (S[1][0] * p[0] + S[1][1] * p[1] + S[1][2] * p[2]),
+              tr * p[2] - (S[2][0] * p[0] + S[2][1] * p[1] + S[2][2] * p[2])]);
   }
-  let v = [1, 0.3, 0.2];
-  for (let k = 0; k < 60; k++) {
-    const nv = [
-      S[0][0] * v[0] + S[0][1] * v[1] + S[0][2] * v[2],
-      S[1][0] * v[0] + S[1][1] * v[1] + S[1][2] * v[2],
-      S[2][0] * v[0] + S[2][1] * v[1] + S[2][2] * v[2]];
-    const nn = Math.hypot(...nv) || 1;
-    v = [nv[0] / nn, nv[1] / nn, nv[2] / nn];
-  }
-  const ss = tps.map(([t]) => (t[0] * v[0] + t[1] * v[1] + t[2] * v[2]) * 180 / Math.PI);
-  let sMin = Infinity, sMax = -Infinity;
-  for (const s of ss) { if (s < sMin) sMin = s; if (s > sMax) sMax = s; }
+  const ref = Math.abs(p[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  const e1 = norm([p[1] * ref[2] - p[2] * ref[1], p[2] * ref[0] - p[0] * ref[2], p[0] * ref[1] - p[1] * ref[0]]);
+  const e2 = [p[1] * e1[2] - p[2] * e1[1], p[2] * e1[0] - p[0] * e1[2], p[0] * e1[1] - p[1] * e1[0]];
+  // azimuth around the pole; start the parametrisation after the largest gap so a
+  // partial arc reads 0 → span and a full loop stays continuous
+  const phi = us.map(u => Math.atan2(u[0] * e2[0] + u[1] * e2[1] + u[2] * e2[2], u[0] * e1[0] + u[1] * e1[1] + u[2] * e1[2]) * 180 / Math.PI);
+  const sorted = phi.slice().sort((a, b) => a - b);
+  let start = sorted[0], gap = sorted[0] + 360 - sorted[sorted.length - 1];
+  for (let k = 1; k < sorted.length; k++) if (sorted[k] - sorted[k - 1] > gap) { gap = sorted[k] - sorted[k - 1]; start = sorted[k]; }
+  const ph = phi.map(x => ((x - start) % 360 + 360) % 360);
+  const span = Math.max(1e-3, Math.max(...ph));
   const track = [];
   for (let b = 0; b < nbin; b++) {
-    const a0 = sMin + (sMax - sMin) * b / nbin, a1 = sMin + (sMax - sMin) * (b + 1) / nbin;
-    let m = [0, 0, 0], cnt = 0;
-    for (let k = 0; k < ss.length; k++) {
-      if (ss[k] >= a0 && ss[k] <= a1) { const u = tps[k][1]; m[0] += u[0]; m[1] += u[1]; m[2] += u[2]; cnt++; }
-    }
-    if (cnt) {
-      const nn = Math.hypot(...m);
-      track.push([(a0 + a1) / 2, [m[0] / nn, m[1] / nn, m[2] / nn]]);
-    }
+    const a0 = span * b / nbin, a1 = span * (b + 1) / nbin;
+    const m = [0, 0, 0]; let cnt = 0;
+    for (let k = 0; k < ph.length; k++) if (ph[k] >= a0 && (ph[k] < a1 || (b === nbin - 1 && ph[k] <= a1))) { m[0] += us[k][0]; m[1] += us[k][1]; m[2] += us[k][2]; cnt++; }
+    if (cnt) track.push([(a0 + a1) / 2, norm(m)]);
   }
   return track;
 }
@@ -225,7 +218,7 @@ function chipsHtml(group) {
 }
 function addListOptions() {
   const left = EXTRA_LISTS.filter(x => !EXTRA_ADDED.has(x.id));
-  return `<option value="">add a list from a survey / paper…</option>` +
+  return `<option value="">add fields from pre-loaded survey</option>` +
     left.map(x => option(x.id, `${x.title} (${SOURCES.find(s => s.id === x.id)?.items().length ?? 0})`)).join('');
 }
 
@@ -248,6 +241,7 @@ function buildSidebar() {
   };
   const dgOpts = [...withMem.map(dgOpt), ...noMem.map(dgOpt)];
   const streamHead = scales.dist.css((10 - D.DIST_MIN) / (D.DIST_MAX - D.DIST_MIN));
+  const hlBtn = (id, key) => `<button class="hl-btn ${state[key] ? 'on' : ''}" id="${id}" title="highlight the selected object (grey out the rest)">highlight</button>`;
   const chk = (id, key, label, sw, title = '') =>
     `<label title="${title}"><input type="checkbox" id="${id}" ${state[key] ? 'checked' : ''}> ${sw ? `<i class="sw ${sw}"></i>` : ''}${label}</label>`;
 
@@ -276,7 +270,7 @@ function buildSidebar() {
   </div>
 
   <details class="group" open>
-    <summary>Catalogs <span class="sum-cap">— what counts as a target</span></summary>
+    <summary>Catalogs</summary>
     <div class="row checks catalogs"><label class="tiny sec-lab">structures with distances</label>
       ${chk('streams-chk', 'streamsOn', 'streams', 'str')}
       ${chk('dg-chk', 'dgOn', 'dwarfs', 'dg')}
@@ -305,34 +299,28 @@ function buildSidebar() {
   </details>
 
   <details class="group">
-    <summary>Go to <span class="sum-cap">— streams · dwarfs · clusters · survey regions</span>
+    <summary>Focus on object
       <span class="sum-btns"><button id="reset-sel" class="micro-btn" title="clear all selections">reset</button></span>
     </summary>
-    <div class="subhead" style="color:${streamHead}">Streams</div>
-    <div class="row checks">
-      <label><input type="checkbox" id="hl-stream" ${state.hlStream ? 'checked' : ''}> highlight selected</label>
-    </div>
+    <div class="subhead" style="color:${streamHead}">Streams ${hlBtn('hl-stream', 'hlStream')}</div>
     <div class="row combo">
-      <select id="stream-sel">${NONE_OPT}${sortedStreams.map(s => option(s, `${s}${D.VIA_SET.has(s) ? ' · Via' : ''}`, state.streamSel === s)).join('')}</select>
+      <select id="stream-sel">${NONE_OPT}
+        <optgroup label="— planned Via streams —">${sortedStreams.filter(s => D.VIA_SET.has(s)).map(s => option(s, s, state.streamSel === s)).join('')}</optgroup>
+        <optgroup label="— other streams —">${sortedStreams.filter(s => !D.VIA_SET.has(s)).map(s => option(s, s, state.streamSel === s)).join('')}</optgroup>
+      </select>
       <button id="stream-go" class="mini-btn" title="go to this stream">GO</button>
     </div>
     <div class="row"><label>scan along stream</label>
       <input type="range" id="scan-stream" disabled>
     </div>
     <div class="subdiv"></div>
-    <div class="subhead" style="color:${UI.dwarf}">Dwarf galaxies</div>
-    <div class="row checks">
-      <label><input type="checkbox" id="hl-dwarf" ${state.hlDwarf ? 'checked' : ''}> highlight selected</label>
-    </div>
+    <div class="subhead" style="color:${UI.dwarf}">Dwarf galaxies ${hlBtn('hl-dwarf', 'hlDwarf')}</div>
     <div class="row combo">
       <select id="dg-sel">${NONE_OPT}${dgOpts.join('')}</select>
       <button id="dg-go" class="mini-btn" title="go to this dwarf">GO</button>
     </div>
     <div class="subdiv"></div>
-    <div class="subhead" style="color:${UI.gc}">Globular clusters</div>
-    <div class="row checks">
-      <label><input type="checkbox" id="hl-gc" ${state.hlGC ? 'checked' : ''}> highlight selected</label>
-    </div>
+    <div class="subhead" style="color:${UI.gc}">Globular clusters ${hlBtn('hl-gc', 'hlGC')}</div>
     <div class="row combo">
       <select id="gc-sel">${NONE_OPT}${gcOpts.join('')}</select>
       <button id="gc-go" class="mini-btn" title="go to this cluster">GO</button>
@@ -347,28 +335,13 @@ function buildSidebar() {
   </details>
 
   <details class="group" open>
-    <summary>Field lists <span class="sum-cap">— step through fields</span>
+    <summary>Save fields
       <span class="sum-btns">
         <button id="hist-back" class="micro-btn" title="previous field (⌘Z)">◀</button>
         <button id="hist-fwd" class="micro-btn" title="next field (⌘⇧Z)">▶</button>
       </span>
     </summary>
-    <div class="list-top">
-      <button id="ovl-sky" class="cone-btn ${state.viaOn ? 'on' : ''}" style="--cone:#d8a35a" title="draw the active lists' fields on the sky maps and the field view">Sky-map overlay</button>
-      <button id="ovl-3d" class="cone-btn ${state.via3d ? 'on' : ''}" style="--cone:#d8a35a" title="active lists' pointing directions on a 15 kpc shell in the 3D view">3D overlay <span class="tiny">(15 kpc)</span></button>
-    </div>
-    <div class="row checks"><label class="tiny sec-lab">${GROUPS.via}</label></div>
-    <div class="svy-chips" id="chips-via">${chipsHtml('via')}</div>
-    <div class="row checks"><label class="tiny sec-lab">${GROUPS.top}</label></div>
-    <div class="svy-chips" id="chips-top">${chipsHtml('top')}</div>
-    <div class="row checks"><label class="tiny sec-lab">${GROUPS.custom}</label></div>
-    <div class="svy-chips" id="chips-custom">${chipsHtml('custom')}</div>
-    <div class="list-add"><select id="add-list">${addListOptions()}</select></div>
-    <div class="row"><label class="sec-lab" id="cand-lab">FIELD IN ACTIVE LIST</label>
-      <select id="cand-sel">${NONE_OPT}</select>
-    </div>
-    <div class="help">Toggle one or more lists to open the player under the 3D view. ← → step, space plays, sort by rungs / targets / HI. Via lists are the unique 1° pointings from the visit lists (Cold Gas subsurveys: PLANE 576 · HI_ABS 100 · HVC 100 · EXGAL 98 · SGR 30 · KEPLER 1); "Transients≈" is a seeded random approximation of where Rubin transients will appear.</div>
-    <div class="row"><label class="sec-lab">SAVED FIELDS</label>
+    <div class="row">
       <div class="save-row">
         <button id="save-field" class="mini-btn">save current field</button>
         <span class="save-col">
@@ -378,6 +351,25 @@ function buildSidebar() {
       </div>
     </div>
     <div id="saved-list"></div>
+  </details>
+
+  <details class="group">
+    <summary>Field lists</summary>
+    <div class="list-top">
+      <button id="ovl-sky" class="cone-btn ${state.viaOn ? 'on' : ''}" style="--cone:#cfc8bb" title="draw the active lists' fields on the sky maps and the field view">Overlay on 2D maps</button>
+      <button id="ovl-3d" class="cone-btn ${state.via3d ? 'on' : ''}" style="--cone:#cfc8bb" title="active lists' pointing directions on a 15 kpc shell in the 3D view">Show in 3D</button>
+    </div>
+    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.via}</label></div>
+    <div class="svy-chips" id="chips-via">${chipsHtml('via')}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.top}</label></div>
+    <div class="svy-chips" id="chips-top">${chipsHtml('top')}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.custom}</label></div>
+    <div class="svy-chips" id="chips-custom">${chipsHtml('custom')}</div>
+    <div class="list-add"><select id="add-list" class="nonesel">${addListOptions()}</select></div>
+    <div class="row sub"><label class="sec-lab" id="cand-lab">FIELD IN ACTIVE LIST</label>
+      <select id="cand-sel">${NONE_OPT}</select>
+    </div>
+    <div class="help">Toggle one or more lists to open the player under the 3D view. ← → step, space plays, sort by rungs / targets / HI. Via lists are the unique 1° pointings from the visit lists (Cold Gas subsurveys: PLANE 576 · HI_ABS 100 · HVC 100 · EXGAL 98 · SGR 30 · KEPLER 1); "Transients≈" is a seeded random approximation of where Rubin transients will appear.</div>
   </details>
 
   <details class="group">
@@ -396,13 +388,16 @@ function buildSidebar() {
 
 function wireSidebar() {
   const fovEl = $('fov');
+  const snapFov = v => { for (const s of FOV_SNAPS) if (Math.abs(v - s) < 0.15) return s; return v; };
+  // live (cheap) updates while dragging, the full recompute + hash on release
   fovEl.addEventListener('input', e => {
-    let v = parseFloat(e.target.value);
-    for (const s of FOV_SNAPS) if (Math.abs(v - s) < 0.15) { v = s; break; }
+    const v = snapFov(parseFloat(e.target.value));
     e.target.value = v;
-    set({ fov: v }, 'field');
+    state.fov = v;
+    emit('field', { live: true });
     syncFov();
   });
+  fovEl.addEventListener('change', e => { set({ fov: snapFov(parseFloat(e.target.value)) }, 'field'); syncFov(); });
   document.querySelectorAll('.fov-snap, .fov-dot').forEach(el => {
     el.addEventListener('click', () => {
       const v = parseFloat(el.dataset.fov);
@@ -495,11 +490,14 @@ function wireSidebar() {
   });
 
   const simple = [
-    ['via-chk', 'via'], ['hl-stream', 'hlStream'], ['via-dg-chk', 'viaDwarfs'], ['hl-dwarf', 'hlDwarf'], ['hl-gc', 'hlGC'],
+    ['via-chk', 'via'], ['via-dg-chk', 'viaDwarfs'],
     ['streams-chk', 'streamsOn'], ['qso-chk', 'qsoOn'], ['gc-chk', 'gcOn'], ['dg-chk', 'dgOn'], ['mem-chk', 'memOn'],
     ['mem2-chk', 'mem2On'], ['halo-chk', 'haloOn'], ['kg-chk', 'kgOn'], ['bhb-chk', 'bhbOn'], ['kep-chk', 'kepOn'],
   ];
   for (const [id, key] of simple) $(id).addEventListener('change', e => set({ [key]: e.target.checked }));
+  for (const [id, key] of [['hl-stream', 'hlStream'], ['hl-dwarf', 'hlDwarf'], ['hl-gc', 'hlGC']]) {
+    $(id).addEventListener('click', e => { const v = !state[key]; e.currentTarget.classList.toggle('on', v); set({ [key]: v }); });
+  }
   $('gc-sel').addEventListener('change', e => {
     syncNoneSel(e.target); dropLock('gc'); set({ gcSel: e.target.value === '' ? null : +e.target.value });
   });
@@ -566,11 +564,13 @@ function refreshChips() {
   if (!$('chips-via')) return;
   for (const id of state.listSrc) if (EXTRA_LISTS.some(x => x.id === id)) EXTRA_ADDED.add(id);
   for (const [box, g] of [['chips-via', 'via'], ['chips-top', 'top'], ['chips-custom', 'custom']]) $(box).innerHTML = chipsHtml(g);
-  $('add-list').innerHTML = addListOptions();
+  $('add-list').innerHTML = addListOptions(); syncNoneSel($('add-list'));
   $('ovl-sky')?.classList.toggle('on', state.viaOn);
   $('ovl-3d')?.classList.toggle('on', state.via3d);
 }
 
+let coverN = 0;   // white 1° circles the finder tiled over the sources (FOV > 1°)
+on('cover', n => { coverN = n; syncFov(); });
 function syncFov() {
   const el = $('fov-v');
   if (!el) return;
@@ -579,7 +579,8 @@ function syncFov() {
   if (fovEl && Math.abs(parseFloat(fovEl.value) - state.fov) > 0.01) {
     fovEl.value = Math.min(5, Math.max(1, state.fov));
   }
-  $('fov-note').textContent = state.fov <= 1.001 ? 'one Via pointing' : `≈ ${Math.round(state.fov ** 2)} pointings`;
+  $('fov-note').textContent = state.fov <= 1.001 ? 'one Via pointing'
+    : `≈ ${Math.round(state.fov ** 2)} pointings${coverN ? ` (${coverN} shown)` : ''}`;
   for (const s of document.querySelectorAll('.fov-snap, .fov-dot')) {
     s.classList.toggle('active', Math.abs(parseFloat(s.dataset.fov) - state.fov) < 0.01);
   }
@@ -609,13 +610,13 @@ function refreshCandidates() {
   const sel = $('cand-sel');
   if (!sel) return;
   const opts = LIST.order.map((it, i) => {
-    const sc = it.score ? ` · ${it.score.rungs}R` : '';
-    return option(i, `${i + 1}. ${it.label}${it.sub ? ` · ${it.sub}` : ''}${sc}`, state.listPos === i);
+    const sc = it.score ? ` · ${it.score.rungs} rungs · ${it.score.targets} targets` : '';
+    return option(i, `${i + 1}. ${it.label}${it.sub ? ` · ${it.sub}` : ''} — ${it.meta}${sc}`, state.listPos === i);
   });
   sel.innerHTML = `${NONE_OPT}${opts.join('')}`;
   if (state.listPos >= 0) sel.value = String(state.listPos);
   syncNoneSel(sel);
-  $('cand-lab').textContent = LIST.order.length ? `FIELD IN ACTIVE LIST (${LIST.order.length})` : 'FIELD IN ACTIVE LIST — none open';
+  $('cand-lab').textContent = LIST.order.length ? `Field in active list (${LIST.order.length})` : 'Field in active list — none open';
 }
 
 export function fieldLabelHtml(f) {
