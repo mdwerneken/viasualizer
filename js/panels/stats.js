@@ -33,8 +33,9 @@ const plural = (n, s, p) => n === 1 ? s : (p ?? s + 's');
 
 function render() {
   const L = [];
-  L.push(`<div class="targets-head">${red(F.fibers.targets)} targets in this field ` +
-    `<span class="tiny hint">(hover a number to highlight)</span></div>`);
+  // the count lives in the panel header ("24 TARGETS in this field")
+  const tt = document.getElementById('targets-title');
+  if (tt) tt.innerHTML = `${red(F.fibers.targets)} targets <span class="in-field">in this field</span>`;
   if (F.idx.length) {
     const parts = F.comp.slice(0, 6).map(([nm, c]) =>
       `${nm}${D.VIA_SET.has(nm) ? '<span class="tiny"> (Via)</span>' : ''} (<span class="tcount" data-hl-stream="${nm}">${c}★</span>)`);

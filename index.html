@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIAsualizer — Via halo sightline explorer</title>
 <link rel="icon" type="image/png" href="img/favicon.png">
-<link rel="stylesheet" href="css/style.css?v=3.2">
+<link rel="stylesheet" href="css/style.css?v=3.3">
 <script type="importmap">
   { "imports": { "three": "./js/vendor/three.module.min.js" } }
 </script>
@@ -52,14 +52,15 @@
       <div class="panel" id="p-fov">
         <div id="fov-box"></div>
       </div>
+      <div class="panel" id="p-stats">
+        <div class="panel-head"><span class="panel-title" id="targets-title">Targets</span>
+          <span class="panel-cap">hover number to focus</span></div>
+        <div id="stats-wrap"></div>
+      </div>
       <div class="panel" id="p-ladder">
         <div class="panel-head"><span class="panel-title">Distance ladder</span>
-          <span class="panel-cap">distance bins sampled in this field. hover icon to focus</span></div>
+          <span class="panel-cap">hover icon to focus</span></div>
         <div id="ladder-wrap"></div>
-      </div>
-      <div class="panel" id="p-stats">
-        <div class="panel-head"><span class="panel-title">Targets</span></div>
-        <div id="stats-wrap"></div>
       </div>
       <div class="panel" id="p-hists">
         <div class="panel-head"><span class="panel-title">Field stats</span></div>
@@ -97,6 +98,6 @@
   <a href="https://github.com/mdwerneken/viasual-app" target="_blank" rel="noopener">source</a>
 </footer>
 
-<script type="module" src="js/app.js?v=3.2"></script>
+<script type="module" src="js/app.js?v=3.3"></script>
 </body>
 </html>

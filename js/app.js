@@ -1,7 +1,7 @@
 // VIAsual v3 — app shell: boot, collapsible sidebar, tabs, field lists + player, saved
 // fields + history (with ⌘Z / ⌘⇧Z), first-run tour, oracle verify.
 const DATA_DIR = 'data';
-export const CODE_VERSION = 'v3.1';
+export const CODE_VERSION = 'v3.3';
 
 import { loadCore, loadQuaia, loadHalo, loadKgiants, loadBhb, loadKepler, loadGeha, loadDust, loadDust3d, D } from './data.js';
 import {
