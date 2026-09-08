@@ -392,7 +392,8 @@ function drawSources(ctx) {
   tracer(F.bhb, D.BHB, KIND.BHB, UI.bhb, i => `<b>BHB star</b> (Xue+11)<br>${D.BHB.dist[i].toFixed(1)} kpc<br>g = ${D.BHB.G[i].toFixed(2)} · v_helio ${D.BHB.hrv[i].toFixed(0)} km/s`, 'BHB');
 
   // dwarf members (same color as the dwarfs); Geha members lighter
-  const members = (arr, cat, kind, colFn, tag) => {
+  // members take their parent's symbol (dwarf = diamond, GC = hexagram), at member size
+  const members = (arr, cat, kind, colFn, tag, isGC = () => false) => {
     if (!arr?.length) return;
     const [mxA, myA] = C.gnomonic(Float64Array.from(arr, i => cat.lam[i]), Float64Array.from(arr, i => cat.bet[i]), state.lam0, state.bet0);
     for (let k = 0; k < arr.length; k++) {
@@ -401,7 +402,7 @@ function drawSources(ctx) {
       const a = inHilite(kind, skey(cat.name[i]), cat.dist[i]);
       ctx.globalAlpha = a ? 1 : dimA;
       if (sz.dense) { ctx.fillStyle = colFn(i); ctx.fillRect(X - 1.4, Y - 1.4, 2.8, 2.8); }
-      else starGlyph(ctx, X, Y, sz.member, colFn(i), '#00000066');
+      else (isGC(i) ? hexagram : diamond)(ctx, X, Y, sz.member, colFn(i), '#00000066');
       ctx.globalAlpha = 1;
       const g = Number.isFinite(cat.G[i]) ? cat.G[i].toFixed(2) : '—';
       hitList.push({ x: X, y: Y, r: sz.member + 2, pri: 0,
@@ -410,7 +411,7 @@ function drawSources(ctx) {
     }
   };
   members(F.mm, D.MEM, KIND.MEM, i => dwarfColorByName(D.MEM.name[i]), '');
-  members(F.mm2, D.MEM2, KIND.MEM2, i => (D.MEM2.isGC?.[i] ? UI.gc : dwarfColorByName(D.MEM2.name[i])), ' (Geha+26, predicted G)');
+  members(F.mm2, D.MEM2, KIND.MEM2, i => (D.MEM2.isGC?.[i] ? UI.gc : dwarfColorByName(D.MEM2.name[i])), ' (Geha+26, predicted G)', i => !!D.MEM2.isGC?.[i]);
 
   // stream stars — identity colors; Via-stream stars drawn LAST and larger
   const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;

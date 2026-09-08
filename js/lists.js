@@ -254,5 +254,5 @@ export function setPlaying(v, intervalMs = 2200) {
   emit('list');
 }
 
-// keep listPos in sync when the user leaves the list's field by hand
-on('lock', () => { if (state.lock?.kind !== 'list' && state.listPos >= 0) { state.listPos = -1; emit('list'); } });
+// the collection position is kept when the user pans / clicks elsewhere (Matt 9-8-26):
+// "next" continues from the last visited item rather than restarting at 1

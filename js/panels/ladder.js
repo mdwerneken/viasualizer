@@ -5,7 +5,7 @@ import { D } from '../data.js';
 import { state, on, emit } from '../state.js';
 import { F } from '../fieldmodel.js';
 import { UI, streamColorByName, dwarfColorByName } from '../colors.js';
-import { fitCanvas, hexagram, diamond, dot, label } from './canvas2d.js';
+import { fitCanvas, hexagram, diamond, dot, starGlyph, label } from './canvas2d.js';
 
 let wrap, headEl, cvs;
 let iconHits = [];
@@ -136,7 +136,7 @@ function draw() {
         const c = D.DWF.name.includes(r.label) ? dwarfColorByName(r.label) : streamColorByName(r.label);
         diamond(ctx, X, y, 7.5, c, '#000a');
       } else if (r.kind === 'halo' || r.kind === 'kg' || r.kind === 'bhb') dot(ctx, X, y, 6.5, kc[r.kind], 0.95);
-      else dot(ctx, X, y, 6.5, streamColorByName(r.label), 0.95);
+      else starGlyph(ctx, X, y, 8, streamColorByName(r.label), '#000a');
       iconHits.push({ x: X, y, r: 11, rung: r });
     }
     for (const ln of lay.lines) {

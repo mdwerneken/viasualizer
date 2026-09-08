@@ -280,7 +280,7 @@ html[data-theme="light"] .badge.none { background: #f6d9d9; color: #8a2a2a; }
   width: 30px; height: 30px; cursor: pointer; font-size: 15px; display: inline-flex; align-items: center;
   justify-content: center; }
 .pl-btn:hover { background: var(--panel2); border-color: var(--border); }
-#player { width: 860px; }
+#player { width: 900px; }
 .pl-btn.big { font-size: 26px; width: 36px; height: 36px; }
 .pl-btn:disabled { opacity: .3; cursor: default; }
 .pl-info { display: flex; flex-direction: column; width: 330px; min-width: 330px; }
@@ -299,6 +299,7 @@ html[data-theme="light"] .badge.none { background: #f6d9d9; color: #8a2a2a; }
 .pl-prog { position: absolute; left: 12px; right: 12px; bottom: 1px; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; }
 .pl-prog span { display: block; height: 100%; background: var(--accent-soft); }
 .pl-sep { width: 1px; height: 22px; background: var(--border); }
+.pl-lab { font-size: 10.5px; font-style: italic; color: var(--dim); white-space: nowrap; margin-right: -4px; }
 .pl-chk { display: inline-flex; align-items: center; gap: 4px; color: var(--dim); font-size: 10.5px; white-space: nowrap; }
 .pl-chk input { accent-color: var(--chk); margin: 0; }
 .pl-close { color: var(--dim); }

@@ -8,9 +8,9 @@ locates the Galaxy's cold gas in 3D. Built from the `field-exploration` research
 
 | App | URL | Notes |
 |---|---|---|
-| **v3** (current, 9-7-26) | **https://mdwerneken.github.io/viasual-app/** | vanilla JS + three.js + Canvas 2D at the repo root; all analysis in typed-array JS |
-| v2.6 (frozen 9-6-26) | https://mdwerneken.github.io/viasual-app/v2/ | own data snapshot in `v2/data/` |
-| v1 (original oracle) | https://mdwerneken.github.io/viasual-app/v1/ | Pyodide/numpy + plotly.js; reads `../v2/data` |
+| **v3** (current, 9-7-26) | **https://mdwerneken.github.io/viasualizer/** | vanilla JS + three.js + Canvas 2D at the repo root; all analysis in typed-array JS |
+| v2.6 (frozen 9-6-26) | https://mdwerneken.github.io/viasualizer/v2/ | own data snapshot in `v2/data/` |
+| v1 (original oracle) | https://mdwerneken.github.io/viasualizer/v1/ | Pyodide/numpy + plotly.js; reads `../v2/data` |
 
 The repo was `mdwerneken/viasual` until 9-6-26; a stub repo at that name redirects every old
 link (path and hash preserved) to `/viasual-app/`.

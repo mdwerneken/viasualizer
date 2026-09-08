@@ -23,6 +23,7 @@ export function initPlayer(container) {
       <span class="pl-sub" id="pl-sub"></span>
     </div>
     <div class="pl-sep"></div>
+    <span class="pl-lab">sort by</span>
     <select class="pl-sel" id="pl-sort" title="sort the list">
       <option value="order">survey order</option>
       <option value="rungs">most distance rungs</option>
