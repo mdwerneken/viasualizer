@@ -13,7 +13,7 @@ const $ = id => document.getElementById(id);
 export function initPlayer(container) {
   el = container;
   el.innerHTML = `
-    <button class="pl-btn pl-close" id="pl-close" title="clear the active lists">✕</button>
+    <button class="pl-btn pl-close" id="pl-close" title="hide the field bar (collapses Field collections; the lists stay selected)">✕</button>
     <div class="pl-sep"></div>
     <button class="pl-btn big" id="pl-prev" title="previous field (←)">‹</button>
     <span class="pl-pos" id="pl-pos"><input id="pl-idx" type="text" inputmode="numeric" title="type a field number and press Enter"> <span id="pl-n">/ 0</span></span>
@@ -34,7 +34,8 @@ export function initPlayer(container) {
     <div class="pl-prog" id="pl-prog" hidden><span></span></div>`;
   $('pl-prev').addEventListener('click', () => stepList(-1));
   $('pl-next').addEventListener('click', () => stepList(1));
-  $('pl-close').addEventListener('click', () => { set({ listSrc: [], listPos: -1 }, 'lists'); rebuild(); });
+  // ✕ = collapse the Field collections group (the bar follows it); the active lists are kept
+  $('pl-close').addEventListener('click', () => { const g = document.getElementById('lists-group'); if (g) g.open = false; set({ listsOpen: false }, 'layout'); });
   $('pl-sort').value = state.listSort;
   $('pl-sort').addEventListener('change', e => { set({ listSort: e.target.value }, 'lists'); rebuild(false); });
   $('pl-title').addEventListener('change', e => { if (e.target.value !== '') gotoIndex(+e.target.value); });
