@@ -1,5 +1,5 @@
 // Field-list explorer — a floating bar over the 3D view, shown while the sidebar's Field
-// lists group is open. Manual stepping only (‹ ›, ← →); the field name is a dropdown of
+// collections group is open. Manual stepping only (‹ ›, ← →); the field name is a dropdown of
 // the whole list; the position "2 / 20" is editable; sort; save. Fixed width whatever is
 // selected. (Auto-play and the visibility filter removed 9-7-26.)
 import { D } from '../data.js';
@@ -64,11 +64,10 @@ function render() {
   const sel = $('pl-title');
   if (!has) {
     sel.innerHTML = `<option value="">no field lists selected</option>`;
-    $('pl-sub').textContent = 'toggle a list in the Field lists section';
+    $('pl-sub').textContent = 'toggle a collection in Field collections';
   } else {
     const opts = LIST.order.map((x, i) => `<option value="${i}"${state.listPos === i ? ' selected' : ''}>${i + 1}. ${x.label}${x.sub ? ` · ${x.sub}` : ''}</option>`);
-    const names = state.listSrc.map(id => SOURCES.find(s => s.id === id)?.short ?? id).join(' + ');
-    sel.innerHTML = `<option value=""${state.listPos < 0 ? ' selected' : ''}>${n ? `${names} — pick a field…` : `${names} — empty list`}</option>${opts.join('')}`;
+    sel.innerHTML = `<option value=""${state.listPos < 0 ? ' selected' : ''}>${n ? 'pick a field' : 'empty list'}</option>${opts.join('')}`;
     if (it) {
       let sc = '';
       if (it.score) {
@@ -77,6 +76,7 @@ function render() {
       }
       $('pl-sub').textContent = `${it.meta}${sc}`;
     } else $('pl-sub').textContent = n ? `${n} fields — ‹ › or ← → to step` : 'empty list';
+    sel.classList.toggle('nonesel', state.listPos < 0);
   }
   sel.style.setProperty('--dot', it?.svy ? SVY_COL[it.svy] : 'transparent');
   $('pl-prev').disabled = $('pl-next').disabled = n === 0;

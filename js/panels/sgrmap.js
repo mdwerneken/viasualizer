@@ -1,7 +1,7 @@
 // Sgr-frame (Λ–B) strip map — gas/dust background in the Sgr grid, star scatter, objects,
 // Via pointings, clouds, sightlines, draggable field circle, full-screen enlarge with
 // structure hover. Λ runs vertically (−180 at the top) so dragging up matches the sky map.
-import { D, bgGridFor } from '../data.js';
+import { D, bgGridFor, gridSample, gridStretch } from '../data.js';
 import { state, setField, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import * as C from '../compute.js';
@@ -12,6 +12,7 @@ import { placeTooltip } from '../scene3d.js';
 import { cloudColor } from './finder.js';
 import { LIST, sourceById } from '../lists.js';
 import { viaHtml, drawColorbarH } from './allsky.js';
+import { dockSkyPanels } from './skylayers.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};
@@ -27,7 +28,7 @@ export function initSgrmap(container) {
   cv.className = 'sgrmap-canvas';
   container.appendChild(cv);
   tipEl = document.getElementById('tooltip2d');
-  const reset = () => { bgCache = {}; starCache = null; hoverObj = null; draw(); };
+  const reset = (open) => { bgCache = {}; starCache = null; hoverObj = null; if (open !== undefined) dockSkyPanels(wrap, open); draw(); };
   expander = makeExpandable(container, { onToggle: reset, hint: 'click or drag to move the field · hover structures · Esc closes' });
   on('fieldmodel', draw);
   on('theme', () => { bgCache = {}; starCache = null; hiStretchSgr = {}; draw(); });
@@ -62,13 +63,13 @@ function moveTo(e, live) {
 
 function bgGridsSgr() {
   const bg = bgGridFor(state.himap);
-  const layers = [[bg.sgr, bgScale(), 1]];
-  if (bg.overlay) layers.push([bg.overlay.sgr, scales.hiRed, 0.55]);
+  const layers = [[bg.gal, bgScale(), 1, bg.sym]];
+  if (bg.overlay) layers.push([bg.overlay, scales.hiRed, 0.55, false]);
   return layers;
 }
 
 function buildBg(w, h) {
-  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST + '|' + !!D.DUST3D;
+  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST3D + '|' + map.w + '|' + map.h;
   if (bgCache[key]) return bgCache[key];
   const off = document.createElement('canvas');
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -77,28 +78,43 @@ function buildBg(w, h) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = UI.panel2;
   ctx.fillRect(0, 0, w, h);
-  const [nb, nl] = D.HI_SGR_SHAPE;
   hiStretchSgr[state.himap] = null;
-  for (const [grid, scale, alphaMul] of bgGridsSgr()) {
-    const fin = [];
-    for (let i = 0; i < grid.length; i += 3) if (Number.isFinite(grid[i])) fin.push(grid[i]);
-    fin.sort((a, b) => a - b);
-    const v0 = C.quantileSorted(fin, 0.25), v1 = C.quantileSorted(fin, 0.99);
+  // per-pixel: strip pixel -> (Lambda, B) -> Galactic (l, b) via the exact frame matrices -> grid
+  const Msgr = D.M_SGR, Mgal = D.M_GAL;
+  const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+  const x0p = Math.round(map.x0 * dpr), x1p = Math.round((map.x0 + map.w) * dpr);
+  const y0p = Math.round(map.y0 * dpr), y1p = Math.round((map.y0 + map.h) * dpr);
+  const img = ctx.getImageData(0, 0, off.width, off.height);
+  for (const [grid, scale, alphaMul, sym] of bgGridsSgr()) {
+    const { v0, v1 } = gridStretch(grid, sym);
     if (!hiStretchSgr[state.himap]) hiStretchSgr[state.himap] = { v0, v1 };
-    const cw = map.w / nb, ch = map.h / nl;
-    ctx.globalAlpha = alphaMul * 0.75;
-    for (let ib = 0; ib < nb; ib++) {
-      for (let il = 0; il < nl; il++) {
-        const v = grid[ib * nl + il];
+    const a = alphaMul * 0.85;
+    for (let y = y0p; y < y1p; y++) {
+      const lam = LMIN + ((y + 0.5) / dpr - map.y0) / map.h * (LMAX - LMIN);
+      const lr = lam * D2R, cl = Math.cos(lr), sl = Math.sin(lr);
+      for (let x = x0p; x < x1p; x++) {
+        const bet = BMIN + ((x + 0.5) / dpr - map.x0) / map.w * (BMAX - BMIN);
+        const br = bet * D2R, cb = Math.cos(br);
+        const vx = cb * cl, vy = cb * sl, vz = Math.sin(br);
+        const ix = Msgr[0][0] * vx + Msgr[1][0] * vy + Msgr[2][0] * vz;
+        const iy = Msgr[0][1] * vx + Msgr[1][1] * vy + Msgr[2][1] * vz;
+        const iz = Msgr[0][2] * vx + Msgr[1][2] * vy + Msgr[2][2] * vz;
+        const gx = Mgal[0][0] * ix + Mgal[0][1] * iy + Mgal[0][2] * iz;
+        const gy = Mgal[1][0] * ix + Mgal[1][1] * iy + Mgal[1][2] * iz;
+        const gz = Mgal[2][0] * ix + Mgal[2][1] * iy + Mgal[2][2] * iz;
+        const v = gridSample(grid, Math.atan2(gy, gx) * R2D, Math.asin(Math.max(-1, Math.min(1, gz))) * R2D);
         if (!Number.isFinite(v)) continue;
         const t = Math.max(0, Math.min(1, (v - v0) / (v1 - v0 || 1)));
-        ctx.fillStyle = scale.css(t);
-        const [X, Y] = toPx(D.HI_SGR_LAM[il], D.HI_SGR_BET[ib]);
-        ctx.fillRect(X - cw / 2, Y - ch / 2, cw + 0.5, ch + 0.5);
+        const [r, g, b] = scale.rgb(t);
+        const p = 4 * (y * off.width + x);
+        img.data[p] = Math.round(img.data[p] * (1 - a) + r * a);
+        img.data[p + 1] = Math.round(img.data[p + 1] * (1 - a) + g * a);
+        img.data[p + 2] = Math.round(img.data[p + 2] * (1 - a) + b * a);
+        img.data[p + 3] = 255;
       }
     }
-    ctx.globalAlpha = 1;
   }
+  ctx.putImageData(img, 0, 0);
   label(ctx, 'B [°]', map.x0 + map.w / 2, h - 2, { align: 'center', size: 9, color: UI.textDim });
   for (const bv of [-20, 0, 20]) {
     const [X] = toPx(0, bv);

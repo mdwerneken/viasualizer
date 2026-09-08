@@ -4,7 +4,7 @@
 // GC/dwarf/member/tracer/QSO markers, Via planned-pointing circles, literature
 // sightlines, hover readout, dblclick-to-recenter, drag-to-pan, scroll-wheel FOV (1–5°,
 // small or enlarged), tiled 1-degree pointings when FOV > 1, and rung pop-outs.
-import { D, bgGridFor } from '../data.js';
+import { D, bgGridFor, gridSampleBL } from '../data.js';
 import { state, set, setField, slideField, replaceLock, emit, on } from '../state.js';
 import { F, KIND } from '../fieldmodel.js';
 import { skey } from '../rungs.js';
@@ -127,18 +127,19 @@ function drawLegend(ctx, w, h) {
   const fs2 = big ? 11 : 8.5;
   let yy = 11;
   if (F.hiTotal) {
-    label(ctx, `HI mean ${Math.log10(F.hiTotal.mean).toFixed(2)}`, rx, yy, { align: 'right', size: fs2, color: UI.textDim }); yy += big ? 14 : 10;
-    label(ctx, `HI peak ${Math.log10(F.hiTotal.peak).toFixed(2)}`, rx, yy, { align: 'right', size: fs2, color: UI.textDim }); yy += big ? 14 : 10;
+    label(ctx, `HI mean ${F.hiTotal.logMean.toFixed(2)}`, rx, yy, { align: 'right', size: fs2, color: UI.textDim }); yy += big ? 14 : 10;
+    label(ctx, `HI peak ${F.hiTotal.logPeak.toFixed(2)}`, rx, yy, { align: 'right', size: fs2, color: UI.textDim }); yy += big ? 14 : 10;
   }
-  if (state.himap === 'hvc' && !F.hi) { label(ctx, 'no HVC gas', rx, yy, { align: 'right', size: fs2, color: UI.textDim }); yy += big ? 14 : 10; }
-  if (F.ebv) label(ctx, `E(B−V) ${(10 ** F.ebv.mean).toFixed(3)}`, rx, yy, { align: 'right', size: fs2, color: UI.textDim });
+  if (['hvc', 'vlsr', 'vgsr'].includes(state.himap) && !F.hi) { label(ctx, 'no HVC gas', rx, yy, { align: 'right', size: fs2, color: UI.textDim }); yy += big ? 14 : 10; }
+  if (F.vel) { label(ctx, `HVC v ${F.vel.mean.toFixed(0)} km/s`, rx, yy, { align: 'right', size: fs2, color: UI.textDim }); yy += big ? 14 : 10; }
+  if (F.ebv) label(ctx, `E(B−V) ${F.ebv.mean.toFixed(3)}`, rx, yy, { align: 'right', size: fs2, color: UI.textDim });
 }
 
 function drawBackground(ctx, Ram) {
-  const n = 64;
+  const n = 112;                                  // raster across the field; bilinear from the 5' grid
   const bg = bgGridFor(state.himap);
   const grids = [[bg.gal, bgScale(), 1.0]];
-  if (bg.overlay) grids.push([bg.overlay.gal, scales.hiRed, 0.55]);
+  if (bg.overlay) grids.push([bg.overlay, scales.hiRed, 0.55]);
   const D2R = Math.PI / 180, R2Dg = 180 / Math.PI;
   const lr = state.lam0 * D2R, br = state.bet0 * D2R;
   const cb = Math.cos(br), sb = Math.sin(br), cl = Math.cos(lr), sl = Math.sin(lr);
@@ -166,12 +167,13 @@ function drawBackground(ctx, Ram) {
         const nrm = Math.hypot(gx, gy, gz);
         const lg = Math.atan2(gy, gx) * R2Dg;
         const bg = Math.asin(Math.max(-1, Math.min(1, gz / nrm))) * R2Dg;
-        vals[k] = C.hiSample(grid, D.HI_NY, D.HI_NX, D.HI_STEP, lg, bg);
+        vals[k] = gridSampleBL(grid, lg, bg);
       }
     }
     const fin = [...vals].filter(Number.isFinite).sort((a, b) => a - b);
     if (!fin.length) continue;
-    const v0 = C.quantileSorted(fin, 0.02), v1 = C.quantileSorted(fin, 0.98);
+    let v0 = C.quantileSorted(fin, 0.02), v1 = C.quantileSorted(fin, 0.98);
+    if (bg.sym) { const a = Math.max(Math.abs(v0), Math.abs(v1)) || 1; v0 = -a; v1 = a; }
     if (!hiStretch) hiStretch = { v0, v1 };
     const off = document.createElement('canvas');
     off.width = n; off.height = n;

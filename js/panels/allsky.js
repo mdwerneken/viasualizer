@@ -4,7 +4,7 @@
 // highlighting, a draggable field circle, and full-screen enlarge: structure hover, scroll
 // wheel zoom about the cursor (right-drag or ⇧-drag pans the zoomed view), the field view
 // docked top-left, Map layers bottom-left and the legend under the colorbar bottom-right.
-import { D, bgGridFor } from '../data.js';
+import { D, bgGridFor, gridSample, gridStretch } from '../data.js';
 import { state, setField, on } from '../state.js';
 import { F } from '../fieldmodel.js';
 import * as C from '../compute.js';
@@ -14,7 +14,7 @@ import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
 import { cloudColor } from './finder.js';
 import { LIST, sourceById } from '../lists.js';
-import { addLegendTarget, removeLegendTarget } from './skylayers.js';
+import { dockSkyPanels } from './skylayers.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};
@@ -23,7 +23,6 @@ let map = { w: 0, h: 0, sx: 1, sy: 1, cx: 0, cy: 0 };
 let dragging = false, panning = null;
 let hoverObj = null;
 let zoom = 1, zx = 0, zy = 0;          // full-screen view zoom (about the cursor) + pan offset [css px]
-let fsLegend = null;
 
 const MX = 2 * C.SQ2 * 1.02, MY = C.SQ2 * 1.05;
 
@@ -35,7 +34,7 @@ export function initAllsky(container) {
   tipEl = document.getElementById('tooltip2d');
   const reset = (open) => {
     bgCache = {}; starCache = null; hoverObj = null; zoom = 1; zx = zy = 0;
-    if (open !== undefined) dockPanels(open);
+    if (open !== undefined) dockSkyPanels(wrap, open);
     draw();
   };
   expander = makeExpandable(container, { onToggle: reset, hint: 'click or drag to move the field · scroll to zoom, right-drag / ⇧-drag to pan · hover structures and pointings · double-click a survey circle or Via pointing to open it · Esc closes' });
@@ -113,24 +112,6 @@ export function initAllsky(container) {
 function toPx(mx, my) { return [map.cx + mx * map.sx * zoom + zx, map.cy - my * map.sy * zoom + zy]; }
 function fromPx(x, y) { return [(x - map.cx - zx) / (map.sx * zoom), -(y - map.cy - zy) / (map.sy * zoom)]; }
 
-// full-screen: dock the field view (top-left), Map layers (bottom-left) and a legend box
-// (bottom-right) inside the enlarged panel; put them back on close
-function dockPanels(open) {
-  const finder = document.getElementById('finder-wrap');
-  const layers = document.getElementById('layers-wrap');
-  if (open) {
-    wrap.append(finder, layers);
-    fsLegend = document.createElement('div');
-    fsLegend.className = 'legend fs';
-    wrap.appendChild(fsLegend);
-    addLegendTarget(fsLegend);
-  } else {
-    const pf = document.getElementById('p-finder');
-    pf.insertBefore(finder, document.getElementById('fov-box'));
-    document.getElementById('p-layers').appendChild(layers);
-    if (fsLegend) { removeLegendTarget(fsLegend); fsLegend.remove(); fsLegend = null; }
-  }
-}
 function eventLB(e) {
   const r = cv.getBoundingClientRect();
   const [mx, my] = fromPx(e.clientX - r.left, e.clientY - r.top);
@@ -145,13 +126,13 @@ function moveTo(e, live) {
 
 function bgGrids() {
   const bg = bgGridFor(state.himap);
-  const layers = [[bg.gal, bgScale(), 1]];
-  if (bg.overlay) layers.push([bg.overlay.gal, scales.hiRed, 0.55]);
+  const layers = [[bg.gal, bgScale(), 1, bg.sym]];
+  if (bg.overlay) layers.push([bg.overlay, scales.hiRed, 0.55, false]);
   return layers;
 }
 
 function buildBg(w, h) {
-  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST + '|' + !!D.DUST3D + '|' + !!expander?.isExpanded();
+  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST3D + '|' + !!expander?.isExpanded();
   if (bgCache[key]) return bgCache[key];
   const saved = [zoom, zx, zy]; zoom = 1; zx = zy = 0;      // build unzoomed; draw() scales it
   try { return buildBgUnzoomed(key, w, h); } finally { [zoom, zx, zy] = saved; }
@@ -166,11 +147,8 @@ function buildBgUnzoomed(key, w, h) {
   ctx.fillRect(0, 0, w, h);
   const img = ctx.getImageData(0, 0, off.width, off.height);
   hiStretchSky[state.himap] = null;
-  for (const [grid, scale, alphaMul] of bgGrids()) {
-    const samp = [];
-    for (let i = 0; i < grid.length; i += 11) if (Number.isFinite(grid[i])) samp.push(grid[i]);
-    samp.sort((a, b) => a - b);
-    const v0 = C.quantileSorted(samp, 0.05), v1 = C.quantileSorted(samp, 0.99);
+  for (const [grid, scale, alphaMul, sym] of bgGrids()) {
+    const { v0, v1 } = gridStretch(grid, sym);
     if (!hiStretchSky[state.himap]) hiStretchSky[state.himap] = { v0, v1 };
     for (let y = 0; y < off.height; y++) {
       const my = -((y + 0.5) / dpr - map.cy) / map.sy;
@@ -178,7 +156,7 @@ function buildBgUnzoomed(key, w, h) {
         const mx = ((x + 0.5) / dpr - map.cx) / map.sx;
         const lb = C.mollInvert(mx, my);
         if (!lb) continue;
-        const v = C.hiSample(grid, D.HI_NY, D.HI_NX, D.HI_STEP, lb[0], lb[1]);
+        const v = gridSample(grid, lb[0], lb[1]);
         if (!Number.isFinite(v)) continue;
         const t = Math.max(0, Math.min(1, (v - v0) / (v1 - v0 || 1)));
         const [r, g, b] = scale.rgb(t);

@@ -19,9 +19,29 @@ export function initLayers(container, legendContainer) {
   on('catalog', all);
   on('theme', all);
 }
-// extra legend targets (the full-screen Galactic view registers its own box)
+// extra legend targets (the full-screen sky views register their own box)
 export function addLegendTarget(node) { legendEls.push(node); renderLegend(); }
 export function removeLegendTarget(node) { legendEls = legendEls.filter(n => n !== node); }
+
+// full screen: dock the field view (top-left), Map layers (bottom-left) and a legend box
+// (bottom-right) inside an enlarged sky panel; put them back on close
+let fsLegend = null;
+export function dockSkyPanels(wrap, open) {
+  const finder = document.getElementById('finder-wrap');
+  const layers = document.getElementById('layers-wrap');
+  if (open) {
+    wrap.append(finder, layers);
+    fsLegend = document.createElement('div');
+    fsLegend.className = 'legend fs';
+    wrap.appendChild(fsLegend);
+    addLegendTarget(fsLegend);
+  } else {
+    const pf = document.getElementById('p-finder');
+    pf.insertBefore(finder, document.getElementById('fov-box'));
+    document.getElementById('p-layers').appendChild(layers);
+    if (fsLegend) { removeLegendTarget(fsLegend); fsLegend.remove(); fsLegend = null; }
+  }
+}
 
 const opt = (v, t, cur) => `<option value="${v}"${cur === v ? ' selected' : ''}>${t}</option>`;
 const chip = (key, label, title = '', color = '#cfc8bb') =>
@@ -32,7 +52,7 @@ function render() {
   el.innerHTML = `
     <div class="layer-row"><span class="lab">background</span>
       <select id="ly-bg">${BG_OPTIONS.map(([v, t]) => opt(v, t, state.himap)).join('')}</select></div>
-    <div class="layer-row"><span class="lab">HVC clouds</span>
+    <div class="layer-row clouds-main"><span class="lab">HVC clouds</span>
       ${chip('cloudsOn', 'show cloud catalogs', 'draw the HVC cloud catalogs on the maps and the field view', UI.cloud)}
     </div>
     <div class="layer-row sub${faint}">
@@ -45,7 +65,7 @@ function render() {
         ${opt('all', 'all clouds', state.cloudFilter)}${opt('compact', 'compact only (CHVC + UCHVC)', state.cloudFilter)}${opt('vhvc', 'very high velocity (|vLSR| ≥ 200)', state.cloudFilter)}
       </select>
       <select id="ly-cl-color" style="flex:1">
-        ${opt('none', 'one color', state.cloudColor)}${opt('vlsr', 'color by v_LSR', state.cloudColor)}${opt('vgsr', 'color by v_GSR', state.cloudColor)}
+        ${opt('none', 'solid color', state.cloudColor)}${opt('vlsr', 'color by v_LSR', state.cloudColor)}${opt('vgsr', 'color by v_GSR', state.cloudColor)}
       </select></div>`;
   el.querySelector('#ly-bg').addEventListener('change', e => set({ himap: e.target.value }));
   el.querySelectorAll('.chip-btn[data-key]').forEach(b => b.addEventListener('click', () => set({ [b.dataset.key]: !state[b.dataset.key] })));

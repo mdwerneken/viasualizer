@@ -6,7 +6,7 @@ import { D } from '../data.js';
 import { state, set, on } from '../state.js';
 import { F, KIND } from '../fieldmodel.js';
 import * as C from '../compute.js';
-import { UI, KIND_COL, KIND_LBL } from '../colors.js';
+import { UI, KIND_COL, KIND_LBL, scales } from '../colors.js';
 import { placeTooltip } from '../scene3d.js';
 import { fitCanvas, label } from './canvas2d.js';
 
@@ -205,7 +205,7 @@ function drawNN() {
   const hist = C.histogram(sep, nb, lo, hi);
   const maxC = Math.max(1, C.arrMax(hist.counts));
   const colW = plot.w / nb;
-  ctx.fillStyle = UI.nnBar;
+  ctx.fillStyle = scales.dist.css(0.30);   // a blue from the distance colormap (the 3D default)
   for (let b = 0; b < nb; b++) {
     const bh = hist.counts[b] / maxC * plot.h;
     ctx.fillRect(plot.x + b * colW + 0.3, plot.y + plot.h - bh, colW - 0.6, bh);

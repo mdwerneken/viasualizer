@@ -44,15 +44,15 @@ function catFromJson(raw) {
 }
 
 // bump when files in data/ change, so deployed pages never read stale caches
-export const DATA_VERSION = 'v3.0';
+export const DATA_VERSION = 'v3.5';
 const q = `?${DATA_VERSION}`;
 
 export async function loadCore(dataDir, onProgress = () => {}) {
   const t0 = performance.now();
-  const [meta, stars, hi, gcsRaw, dwarfsRaw, members, cloudsRaw, viaRaw, sightRaw] = await Promise.all([
+  const [meta, stars, maps, gcsRaw, dwarfsRaw, members, cloudsRaw, viaRaw, sightRaw] = await Promise.all([
     fetch(`${dataDir}/meta.json${q}`).then(r => r.json()),
     loadNpz(`${dataDir}/stars.npz${q}`).then(x => { onProgress('stream stars'); return x; }),
-    loadNpz(`${dataDir}/hi.npz${q}`).then(x => { onProgress('HI maps'); return x; }),
+    loadNpz(`${dataDir}/maps.npz${q}`).then(x => { onProgress('sky maps'); return x; }),
     fetch(`${dataDir}/gcs.json${q}`).then(r => r.json()),
     fetch(`${dataDir}/dwarfs.json${q}`).then(r => r.json()),
     loadNpz(`${dataDir}/members.npz${q}`).then(x => { onProgress('dwarf members'); return x; }),
@@ -73,21 +73,14 @@ export async function loadCore(dataDir, onProgress = () => {}) {
   for (let i = 0; i < D.N; i++) D.viaMask[i] = D.VIA_SET.has(D.STREAM_NAMES[D.s_name_code[i]]) ? 1 : 0;
   D.streamIsVia = code => D.VIA_SET.has(D.STREAM_NAMES[code]);
 
-  // HI grids (plate carree, rows b from -90, cols l from -180)
-  D.HI_STEP = hi.hi_step.data[0];
-  D.HI_LOG_TOTAL = hi.log_total.data;
-  [D.HI_NY, D.HI_NX] = hi.log_total.shape;
-  D.HI_LOG_HVC = hi.log_hvc ? hi.log_hvc.data : null;
-  D.HI_LIN_TOTAL = Float32Array.from(D.HI_LOG_TOTAL, v => 10 ** v);
-  D.HI_LIN_HVC = D.HI_LOG_HVC ? Float32Array.from(D.HI_LOG_HVC, v => 10 ** v) : null;
-  D.HI_GRID_L = Float64Array.from({ length: D.HI_NX }, (_, i) => -180 + D.HI_STEP * i);
-  D.HI_GRID_B = Float64Array.from({ length: D.HI_NY }, (_, i) => -90 + D.HI_STEP * i);
-  D.HI_SGR_TOTAL = hi.sgr_total.data;           // shape (61, 361): [bet, lam]
-  D.HI_SGR_SHAPE = hi.sgr_total.shape;
-  D.HI_SGR_HVC = hi.sgr_hvc ? hi.sgr_hvc.data : null;
-  D.HI_SGR_LAM = hi.sgr_lam.data;
-  D.HI_SGR_BET = hi.sgr_bet.data;
-  D.DUST = null;                                 // lazy (dust.npz)
+  // all-sky background maps: one 5' plate-carree grid (rows b from -90, cols l from -180),
+  // compact encodings decoded on sample (see tools/build_maps.py + makeGrid)
+  const step = maps.step.data[0], l0 = maps.l0.data[0], b0 = maps.b0.data[0];
+  const u8 = (k) => makeGrid(maps[k].data, maps[k].shape, step, l0, b0, { kind: 'u8', lo: maps[`${k}_lo`].data[0], hi: maps[`${k}_hi`].data[0] });
+  const i16 = (k) => makeGrid(maps[k].data, maps[k].shape, step, l0, b0, { kind: 'i16', scale: 0.1 });
+  D.MAPS = { total: u8('total'), hvc: u8('hvc'), vlsr: i16('vlsr'), vgsr: i16('vgsr'), sfd: u8('sfd') };
+  D.MAPS_NOTE = maps.note ? maps.note.data[0] : '';
+  D.DUST = { grid: D.MAPS.sfd };                 // SFD lives in maps.npz now
 
   // object catalogs
   D.GCC = catGeom(catFromJson(gcsRaw), D.SUN_GC, D.RG_GAL2GC);
@@ -237,15 +230,91 @@ export async function loadGeha(dataDir) {
 }
 
 // SFD98 E(B-V) on the HI grids
-export async function loadDust(dataDir) {
-  try {
-    const d = await loadNpz(`${dataDir}/dust.npz${q}`);
-    D.DUST = {
-      LOG_EBV: d.log_ebv.data, SGR_LOG_EBV: d.sgr_log_ebv.data,
-      shape: d.log_ebv.shape, sgrShape: d.sgr_log_ebv.shape,
-    };
-    return true;
-  } catch (e) { console.warn('[viasual] no dust.npz:', e.message); D.DUST = null; return false; }
+// ---- background-map grids -----------------------------------------------------------
+// A grid = { data, ny, nx, step, l0, b0, kind, lo, hi, scale }; values decode on read:
+//   u8  : 0 = NaN, 1..255 -> lo..hi (linear)      i16 : -32768 = NaN, else value*scale
+//   f32 : raw floats (NaN allowed)
+export function makeGrid(data, shape, step, l0, b0, dec) {
+  return { data, ny: shape[0], nx: shape[1], step, l0, b0, kind: 'f32', lo: 0, hi: 1, scale: 1, ...dec,
+    _q: new Map() };
+}
+export function gridAt(G, k) {
+  const v = G.data[k];
+  if (G.kind === 'u8') return v === 0 ? NaN : G.lo + (v - 1) * (G.hi - G.lo) / 254;
+  if (G.kind === 'i16') return v === -32768 ? NaN : v * G.scale;
+  return v;
+}
+function gridIdx(G, l, b) {
+  let li = Math.round((((l - G.l0) % 360) + 360) % 360 / G.step);
+  let bi = Math.round((b - G.b0) / G.step);
+  if (li > G.nx - 1) li = G.nx - 1; if (li < 0) li = 0;
+  if (bi > G.ny - 1) bi = G.ny - 1; if (bi < 0) bi = 0;
+  return bi * G.nx + li;
+}
+export function gridSample(G, l, b) { return gridAt(G, gridIdx(G, l, b)); }
+// bilinear, NaN-aware (a NaN corner drops out of the weighted mean)
+export function gridSampleBL(G, l, b) {
+  const x = (((l - G.l0) % 360) + 360) % 360 / G.step, y = (b - G.b0) / G.step;
+  let x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  if (y0 < 0) y0 = 0; if (y0 > G.ny - 2) y0 = G.ny - 2;
+  if (x0 < 0) x0 = 0; if (x0 > G.nx - 2) x0 = G.nx - 2;
+  let sum = 0, wsum = 0;
+  const acc = (yy, xx, w) => { if (w <= 0) return; const v = gridAt(G, yy * G.nx + xx); if (Number.isFinite(v)) { sum += v * w; wsum += w; } };
+  acc(y0, x0, (1 - fx) * (1 - fy)); acc(y0, x0 + 1, fx * (1 - fy)); acc(y0 + 1, x0, (1 - fx) * fy); acc(y0 + 1, x0 + 1, fx * fy);
+  return wsum > 0 ? sum / wsum : NaN;
+}
+// global quantiles of a grid (strided sample, cached per grid + stride)
+export function gridQuantiles(G, q0, q1, stride = 23) {
+  const key = `${stride}`;
+  let sorted = G._q.get(key);
+  if (!sorted) {
+    const vals = [];
+    for (let k = 0; k < G.data.length; k += stride) { const v = gridAt(G, k); if (Number.isFinite(v)) vals.push(v); }
+    vals.sort((a, b) => a - b);
+    sorted = Float64Array.from(vals);
+    G._q.set(key, sorted);
+  }
+  const at = q => sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))))] : NaN;
+  return [at(q0), at(q1)];
+}
+// the display stretch for a background: quantiles, symmetric about 0 for velocity maps
+export function gridStretch(G, sym = false, q0 = 0.05, q1 = 0.99) {
+  let [v0, v1] = gridQuantiles(G, q0, q1);
+  if (sym) { const a = Math.max(Math.abs(v0), Math.abs(v1)) || 1; v0 = -a; v1 = a; }
+  return { v0, v1 };
+}
+// mean / peak inside a spherical cap. log=true averages 10**v and reports log10 of the
+// mean and peak (column densities, E(B-V)); log=false averages the values (velocities)
+export function gridStats(G, l0, b0, radius, log = true) {
+  const D2R = Math.PI / 180;
+  const lr0 = l0 * D2R, br0 = b0 * D2R;
+  const ux = Math.cos(br0) * Math.cos(lr0), uy = Math.cos(br0) * Math.sin(lr0), uz = Math.sin(br0);
+  const cosr = Math.cos(radius * D2R);
+  const bLo = Math.max(0, Math.floor((b0 - radius - G.b0) / G.step));
+  const bHi = Math.min(G.ny - 1, Math.ceil((b0 + radius - G.b0) / G.step));
+  // longitude window (widened by 1/cos b; full circle near the poles)
+  const cb0 = Math.cos(br0);
+  const dl = cb0 > 1e-3 ? Math.min(180, radius / cb0 + G.step) : 180;
+  let sum = 0, cnt = 0, peak = -Infinity;
+  for (let bi = bLo; bi <= bHi; bi++) {
+    const bb = G.b0 + bi * G.step, br = bb * D2R, cb = Math.cos(br), sb = Math.sin(br);
+    let lStart = l0 - dl, lEnd = l0 + dl;
+    for (let ll = lStart; ll <= lEnd; ll += G.step) {
+      const lw = (((ll - G.l0) % 360) + 360) % 360;
+      const li = Math.min(G.nx - 1, Math.round(lw / G.step));
+      const lr = (G.l0 + li * G.step) * D2R;
+      if (cb * Math.cos(lr) * ux + cb * Math.sin(lr) * uy + sb * uz < cosr) continue;
+      let v = gridAt(G, bi * G.nx + li);
+      if (!Number.isFinite(v)) continue;
+      if (log) v = 10 ** v;
+      sum += v; cnt++;
+      if (v > peak) peak = v;
+    }
+  }
+  if (!cnt) return null;
+  const mean = sum / cnt;
+  return log ? { mean, peak, logMean: Math.log10(mean), logPeak: Math.log10(peak), n: cnt } : { mean, peak, n: cnt };
 }
 
 // Edenhofer+24 3D dust: integrated slices (to 300 / 600 / 1250 pc) + a local point cloud
@@ -253,56 +322,29 @@ export async function loadDust3d(dataDir) {
   try {
     const d = await loadNpz(`${dataDir}/dust3d.npz${q}`);
     const [ns, ny, nx] = d.ebv_slices.shape;
+    const step = 360 / (nx - 1);                 // the slices keep their own (0.25 deg) grid
     const slices = [];
-    for (let k = 0; k < ns; k++) slices.push(d.ebv_slices.data.subarray(k * ny * nx, (k + 1) * ny * nx));
+    for (let k = 0; k < ns; k++) slices.push(makeGrid(d.ebv_slices.data.subarray(k * ny * nx, (k + 1) * ny * nx), [ny, nx], step, -180, -90, { kind: 'f32' }));
     D.DUST3D = {
       slices, pc: Array.from(d.slice_pc.data),
       xyz: d.cloud_xyz.data, val: d.cloud_val.data, w: d.cloud_w.data, n: d.cloud_w.data.length,
-      sgr: {},                                    // Sgr-strip versions built lazily
     };
     return D.DUST3D.n;
   } catch (e) { console.warn('[viasual] no dust3d.npz:', e.message); D.DUST3D = null; return 0; }
 }
 
-// resample a galactic (l,b) plate-carree grid onto the Sgr Lambda/Beta strip grid
-export function sgrGridFromGal(grid) {
-  const nb = D.HI_SGR_BET.length, nl = D.HI_SGR_LAM.length;
-  const out = new Float32Array(nb * nl);
-  const M = D.M_GAL, B = D.M_SGR;
-  const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-  for (let ib = 0; ib < nb; ib++) {
-    const br = D.HI_SGR_BET[ib] * D2R, cb = Math.cos(br), sb = Math.sin(br);
-    for (let il = 0; il < nl; il++) {
-      const lr = D.HI_SGR_LAM[il] * D2R;
-      const v = [cb * Math.cos(lr), cb * Math.sin(lr), sb];
-      // Sgr -> ICRS (B^T) -> Galactic (M)
-      const ix = B[0][0] * v[0] + B[1][0] * v[1] + B[2][0] * v[2];
-      const iy = B[0][1] * v[0] + B[1][1] * v[1] + B[2][1] * v[2];
-      const iz = B[0][2] * v[0] + B[1][2] * v[1] + B[2][2] * v[2];
-      const gx = M[0][0] * ix + M[0][1] * iy + M[0][2] * iz;
-      const gy = M[1][0] * ix + M[1][1] * iy + M[1][2] * iz;
-      const gz = M[2][0] * ix + M[2][1] * iy + M[2][2] * iz;
-      const l = Math.atan2(gy, gx) * R2D, b = Math.asin(Math.max(-1, Math.min(1, gz))) * R2D;
-      let li = Math.round((((l + 180) % 360 + 360) % 360) / D.HI_STEP);
-      let bi = Math.round((b + 90) / D.HI_STEP);
-      if (li > D.HI_NX - 1) li = D.HI_NX - 1; if (bi > D.HI_NY - 1) bi = D.HI_NY - 1;
-      out[ib * nl + il] = grid[bi * D.HI_NX + li];
-    }
-  }
-  return out;
-}
-
-// the background map for a `himap` key: { gal (l,b grid), sgr (strip grid), overlay? }
-// keys: total | hvc | overlay | dust (SFD) | e300 | e600 | e1250 (Edenhofer integrated)
+// the background map for a `himap` key: { gal: grid, overlay?: grid, sym: symmetric stretch }
+// keys: total | hvc | overlay | vlsr | vgsr | dust (SFD) | e300 | e600 | e1250 (Edenhofer integrated)
 export function bgGridFor(himap) {
-  if (himap === 'hvc' && D.HI_LOG_HVC) return { gal: D.HI_LOG_HVC, sgr: D.HI_SGR_HVC };
-  if (himap === 'dust' && D.DUST) return { gal: D.DUST.LOG_EBV, sgr: D.DUST.SGR_LOG_EBV };
+  const M = D.MAPS;
+  if (himap === 'hvc') return { gal: M.hvc, overlay: null, sym: false };
+  if (himap === 'vlsr' || himap === 'vgsr') return { gal: M[himap], overlay: null, sym: true };
+  if (himap === 'dust') return { gal: M.sfd, overlay: null, sym: false };
   if (himap?.startsWith('e') && D.DUST3D) {
     const k = { e300: 0, e600: 1, e1250: 2 }[himap] ?? 2;
-    if (!D.DUST3D.sgr[k]) D.DUST3D.sgr[k] = sgrGridFromGal(D.DUST3D.slices[k]);
-    return { gal: D.DUST3D.slices[k], sgr: D.DUST3D.sgr[k] };
+    return { gal: D.DUST3D.slices[k], overlay: null, sym: false };
   }
-  return { gal: D.HI_LOG_TOTAL, sgr: D.HI_SGR_TOTAL, overlay: himap === 'overlay' && D.HI_LOG_HVC ? { gal: D.HI_LOG_HVC, sgr: D.HI_SGR_HVC } : null };
+  return { gal: M.total, overlay: himap === 'overlay' ? M.hvc : null, sym: false };
 }
 
 // band-limited spherical-cap query over a bet-sorted catalog

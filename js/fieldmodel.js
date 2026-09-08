@@ -3,7 +3,7 @@
 // nothing to the ladder, fiber budget, histograms or stats.
 // v3: computeField() is a pure function of (lam, bet, fov) + the visibility state, so
 // field LISTS can be scored in the background with exactly the live rules.
-import { D, quaiaInField, sortedCatInField, bgGridFor } from './data.js';
+import { D, quaiaInField, sortedCatInField, bgGridFor, gridStats } from './data.js';
 import { state, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { ladder } from './rungs.js';
@@ -147,13 +147,13 @@ export function computeField(lam0, bet0, fov, opts = {}) {
     } else R.nn = null;
   } else { R.clouds = []; R.cloudsInField = []; R.nn = null; }
 
-  // HI stats (linear grid by active map) + dust
-  const lin = state.himap === 'hvc' && D.HI_LIN_HVC ? D.HI_LIN_HVC : D.HI_LIN_TOTAL;
-  R.hi = C.hiStatsInField(lin, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r);
-  R.hiTotal = (state.himap === 'hvc') ? C.hiStatsInField(D.HI_LIN_TOTAL, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r) : R.hi;
-  R.ebv = D.DUST ? C.gridMeanInField(D.DUST.LOG_EBV, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r, true) : null;
-  R.e3d = (D.DUST3D && state.himap?.startsWith('e'))
-    ? C.gridMeanInField(bgGridFor(state.himap).gal, D.HI_GRID_L, D.HI_GRID_B, D.HI_NY, D.HI_NX, l0, b0, r, true) : null;
+  // gas + dust along the sightline (5' grids; means are of the linear quantity)
+  const hvcMode = state.himap === 'hvc' || state.himap === 'vlsr' || state.himap === 'vgsr' || state.himap === 'overlay';
+  R.hiTotal = gridStats(D.MAPS.total, l0, b0, r, true);
+  R.hi = hvcMode ? gridStats(D.MAPS.hvc, l0, b0, r, true) : R.hiTotal;
+  R.vel = (state.himap === 'vlsr' || state.himap === 'vgsr') ? gridStats(D.MAPS[state.himap], l0, b0, r, false) : null;
+  R.ebv = gridStats(D.MAPS.sfd, l0, b0, r, true);
+  R.e3d = (D.DUST3D && state.himap?.startsWith('e')) ? gridStats(bgGridFor(state.himap).gal, l0, b0, r, true) : null;
 
   // ladder + fiber budget (both follow visibility)
   const tracers = [];

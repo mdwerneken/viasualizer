@@ -42,7 +42,6 @@ export const UI = {
   kepler: '#4caf50',
   sun: '#ffd34d',
   axis: '#4d4944',          // plot axes / ticks / slider tracks (lighter than the panel border)
-  nnBar: 'rgb(140,170,215)', // fiber-crowding bars: the light end of the HI colorbar
   cloud: '#6fd8e8',         // HVC clouds
   sight: '#ffffff',         // literature sightlines
   ...THEMES.dark,
@@ -143,6 +142,7 @@ export function hexToRgb01(hex) {
 // background-map helpers shared by finder / all-sky / Sgr strip
 export function bgScale() {
   const m = state_himap();
+  if (m === 'vlsr' || m === 'vgsr') return scales.vel;
   return m === 'hvc' ? scales.hiRed : (m === 'dust' || m.startsWith('e')) ? scales.dust : scales.hiBlue;
 }
 let _himapGetter = () => 'total';
@@ -150,12 +150,15 @@ export function bindHimap(fn) { _himapGetter = fn; }
 function state_himap() { return _himapGetter(); }
 export const BG_OPTIONS = [
   ['total', 'HI4PI total N(HI)'], ['hvc', 'HI4PI high-velocity N(HI)'], ['overlay', 'total + HVC overlay'],
+  ['vlsr', 'HVC velocity v_LSR (km/s)'], ['vgsr', 'HVC velocity v_GSR (km/s)'],
   ['dust', 'SFD dust E(B−V) (all distances)'], ['e300', 'Edenhofer 3D dust within 300 pc'],
   ['e600', 'Edenhofer 3D dust within 600 pc'], ['e1250', 'Edenhofer 3D dust within 1.25 kpc'],
 ];
 export function bgLabel() {
   const m = state_himap();
   if (m === 'hvc') return 'HVC log N(HI)';
+  if (m === 'vlsr') return 'HVC v_LSR [km/s]';
+  if (m === 'vgsr') return 'HVC v_GSR [km/s]';
   if (m === 'dust') return 'log E(B−V) SFD';
   if (m === 'e300') return 'log E (ZGR23) < 300 pc';
   if (m === 'e600') return 'log E (ZGR23) < 600 pc';

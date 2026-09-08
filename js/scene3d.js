@@ -5,7 +5,7 @@
 // pointer that can be dragged. No GL line primitives anywhere (macOS/ANGLE bug).
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
-import { D, bgGridFor } from './data.js';
+import { D, bgGridFor, gridSample, gridStretch } from './data.js';
 import { state, setField, slideField, replaceLock, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { UI, scales, streamColor, HEMI_COL, HEMI_LBL, hexToRgb01, SVY_COL, bgScale } from './colors.js';
@@ -636,17 +636,14 @@ function hiTexture() {
   cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(w, h);
-  const grid = bgGridFor(state.himap).gal;
+  const bg = bgGridFor(state.himap), grid = bg.gal;
   const scale = bgScale();
-  const vals = [];
-  for (let i = 0; i < grid.length; i += 7) if (Number.isFinite(grid[i])) vals.push(grid[i]);
-  vals.sort((a, b) => a - b);
-  const v0 = C.quantileSorted(vals, 0.05), v1 = C.quantileSorted(vals, 0.99);
+  const { v0, v1 } = gridStretch(grid, bg.sym);
   for (let y = 0; y < h; y++) {
     const bb = 90 - (y + 0.5) * 180 / h;
     for (let x = 0; x < w; x++) {
       const ll = -180 + (x + 0.5) * 360 / w;
-      const v = C.hiSample(grid, D.HI_NY, D.HI_NX, D.HI_STEP, ll, bb);
+      const v = gridSample(grid, ll, bb);
       const p = 4 * (y * w + x);
       if (!Number.isFinite(v) || Math.abs(bb) < 15) { img.data[p + 3] = 0; continue; }
       const t = Math.max(0, Math.min(1, (v - v0) / (v1 - v0 || 1)));
@@ -688,7 +685,7 @@ function hiShellGeometry(R = 10, nl = 96, nb = 48) {
 }
 function updateHiSphere() {
   if (!state.hiSphere) { if (hiSphere) hiSphere.visible = false; return; }
-  const key = state.himap + '|' + UI.themeName + '|' + !!D.DUST + '|' + !!D.DUST3D;
+  const key = state.himap + '|' + UI.themeName + '|' + !!D.DUST3D;
   if (!hiSphere || hiSphere.userData.key !== key) {
     if (hiSphere) { scene.remove(hiSphere); hiSphere.geometry.dispose(); hiSphere.material.map?.dispose(); }
     const mat = new THREE.MeshBasicMaterial({ map: hiTexture(), transparent: true, depthWrite: false, side: THREE.BackSide });

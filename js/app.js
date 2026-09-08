@@ -3,7 +3,7 @@
 const DATA_DIR = 'data';
 export const CODE_VERSION = 'v3.3';
 
-import { loadCore, loadQuaia, loadHalo, loadKgiants, loadBhb, loadKepler, loadGeha, loadDust, loadDust3d, D } from './data.js';
+import { loadCore, loadQuaia, loadHalo, loadKgiants, loadBhb, loadKepler, loadGeha, loadDust3d, D } from './data.js';
 import {
   state, set, setField, slideField, replaceLock, on, emit, initHash, loadPrefs,
   loadSaved, storeSaved, saveCurrentField, galField, histState, histGo, histSeed,
@@ -20,13 +20,12 @@ import { initHists } from './panels/hists.js';
 import { initLadder } from './panels/ladder.js';
 import { initStats } from './panels/stats.js';
 import { initPlayer } from './panels/player.js';
-import { initLists, SOURCES, LIST, GROUPS, EXTRA_LISTS, rebuild, gotoIndex, stepList, currentItem } from './lists.js';
+import { initLists, SOURCES, LIST, GROUPS, rebuild, gotoIndex, stepList, currentItem, nearestIndex } from './lists.js';
 import { initTour, startTour } from './tour.js';
 
 const $ = id => document.getElementById(id);
 const FOV_SNAPS = [1, 2, 3, 4, 5];
 const DEFAULT_FIELD = { lam: -150.147, bet: 10.389 };   // GD-1 × Sagittarius overlap (Matt 8-20-26)
-const LS_EXTRA = 'viasual3_extra_lists';
 
 // ---- along-stream track (port of core.py _build_track / _track_pos) ----------------
 const TRACK = { list: null, stream: null };
@@ -207,26 +206,12 @@ function catalogsHtml() {
   return html;
 }
 
-// literature lists the user has added to "Custom" from the dropdown (remembered locally)
-const EXTRA_ADDED = new Set();
-function loadExtras() {
-  try { for (const id of JSON.parse(localStorage.getItem(LS_EXTRA) || '[]')) EXTRA_ADDED.add(id); } catch {}
-  for (const id of state.listSrc) if (EXTRA_LISTS.some(x => x.id === id)) EXTRA_ADDED.add(id);
-}
-function storeExtras() { try { localStorage.setItem(LS_EXTRA, JSON.stringify([...EXTRA_ADDED])); } catch {} }
-
 function chipHtml(s) {
   const n = s.items().length;
-  const x = s.extra ? `<span class="x" data-drop="${s.id}" title="remove this list">×</span>` : '';
-  return `<button class="chip-btn ${state.listSrc.includes(s.id) ? 'on' : ''}" data-src="${s.id}" style="--svy:${s.color}" title="${s.title}">${s.short}<span class="n">${n}</span>${x}</button>`;
+  return `<button class="chip-btn ${state.listSrc.includes(s.id) ? 'on' : ''}" data-src="${s.id}" style="--svy:${s.color}" title="${s.title}">${s.short}<span class="n">${n}</span></button>`;
 }
 function chipsHtml(group) {
-  return SOURCES.filter(s => s.group === group && (!s.extra || EXTRA_ADDED.has(s.id))).map(chipHtml).join('');
-}
-function addListOptions() {
-  const left = EXTRA_LISTS.filter(x => !EXTRA_ADDED.has(x.id));
-  return `<option value="">add fields from pre-loaded survey</option>` +
-    left.map(x => option(x.id, `${x.title} (${SOURCES.find(s => s.id === x.id)?.items().length ?? 0})`)).join('');
+  return SOURCES.filter(s => s.group === group).map(chipHtml).join('');
 }
 
 function buildSidebar() {
@@ -248,7 +233,7 @@ function buildSidebar() {
   };
   const dgOpts = [...withMem.map(dgOpt), ...noMem.map(dgOpt)];
   const streamHead = scales.dist.css((10 - D.DIST_MIN) / (D.DIST_MAX - D.DIST_MIN));
-  const hlBtn = (id, key) => `<button class="hl-btn ${state[key] ? 'on' : ''}" id="${id}" title="focus on the selected object (grey out the rest)">focus selected</button>`;
+  const hlBtn = (id, key) => `<button class="hl-btn ${state[key] ? 'on' : ''}" id="${id}" title="highlight the selected object (grey out the rest)">highlight selected</button>`;
   const chk = (id, key, label, sw, title = '') =>
     `<label title="${title}"><input type="checkbox" id="${id}" ${state[key] ? 'checked' : ''}> ${sw ? `<i class="sw ${sw}"></i>` : ''}${label}</label>`;
   // catalog toggles as chips (color = the catalog's identity color)
@@ -310,20 +295,34 @@ function buildSidebar() {
       ${cchip('bhbOn', 'BHB', UI.bhb, 'Xue+11 SDSS blue horizontal branch stars, 2-77 kpc')}
       ${cchip('kepOn', 'Kepler stars', UI.kep, 'Gaia stars in the Kepler field, parallax distances (< 5 kpc)')}
     </div>
-    <div class="row checks sub"><label class="tiny sec-lab">backlights at infinity</label></div>
+    <div class="row checks sub"><label class="tiny sec-lab lab-row">Extragalactic <span class="lab-note">field view only</span></label></div>
     <div class="svy-chips">${cchip('qsoOn', 'quasars', UI.accent2)}</div>
-    <div class="row checks sub"><label class="tiny sec-lab">stream / dwarf filters</label></div>
-    <div class="svy-chips">${cchip('via', 'Via streams only', '#cfc8bb')}${cchip('viaDwarfs', 'dwarfs ≤ 300 kpc', '#cfc8bb')}</div>
     <div class="row checks sub"><label class="tiny sec-lab">dwarf member stars</label></div>
     <div class="svy-chips">${cchip('memOn', 'Battaglia+22 (Gaia G)', UI.member)}${cchip('mem2On', 'Geha+26 (predicted G)', UI.member2)}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">filters</label></div>
+    <div class="svy-chips">${cchip('via', 'Via streams only', '#cfc8bb')}${cchip('viaDwarfs', 'dwarfs ≤ 300 kpc', '#cfc8bb')}</div>
     </div>
     <div class="row combo">
-      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">show disk <span class="tiny">(R 10 · z 1 kpc, 3D)</span></button>
+      <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">show disk <span class="tiny">(R = 10 kpc, z = 1 kpc)</span></button>
     </div>
   </details>
 
+  <details class="group" id="lists-group" ${state.listsOpen ? 'open' : ''}>
+    <summary>Field collections</summary>
+    <div class="list-top">
+      <button id="ovl-sky" class="cone-btn ${state.viaOn ? 'on' : ''}" style="--cone:#cfc8bb" title="draw the active lists' fields on the sky maps and the field view">Overlay on 2D maps</button>
+      <button id="ovl-3d" class="cone-btn ${state.via3d ? 'on' : ''}" style="--cone:#cfc8bb" title="active lists' pointing directions on a 15 kpc shell in the 3D view">Show in 3D</button>
+    </div>
+    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.top}</label></div>
+    <div class="svy-chips stack" id="chips-top">${chipsHtml('top')}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.via}</label></div>
+    <div class="svy-chips" id="chips-via">${chipsHtml('via')}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.custom}</label></div>
+    <div class="svy-chips" id="chips-custom">${chipsHtml('custom')}</div>
+  </details>
+
   <details class="group">
-    <summary>Focus on object
+    <summary>Select an object
       <span class="sum-btns"><button id="reset-sel" class="micro-btn" title="clear all selections">reset</button></span>
     </summary>
     <div class="subhead" style="color:${streamHead}">Streams ${hlBtn('hl-stream', 'hlStream')}</div>
@@ -356,21 +355,6 @@ function buildSidebar() {
       <button class="cone-btn" data-cone="${c.key}" style="--cone:${c.color}">${c.name} <span class="tiny">(${c.fov}°)</span></button>
       <button class="mini-btn cone-go" data-cone="${c.key}">GO</button>
     </div>`).join('')}
-  </details>
-
-  <details class="group" id="lists-group" ${state.listsOpen ? 'open' : ''}>
-    <summary>Field lists</summary>
-    <div class="list-top">
-      <button id="ovl-sky" class="cone-btn ${state.viaOn ? 'on' : ''}" style="--cone:#cfc8bb" title="draw the active lists' fields on the sky maps and the field view">Overlay on 2D maps</button>
-      <button id="ovl-3d" class="cone-btn ${state.via3d ? 'on' : ''}" style="--cone:#cfc8bb" title="active lists' pointing directions on a 15 kpc shell in the 3D view">Show in 3D</button>
-    </div>
-    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.via}</label></div>
-    <div class="svy-chips" id="chips-via">${chipsHtml('via')}</div>
-    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.top}</label></div>
-    <div class="svy-chips" id="chips-top">${chipsHtml('top')}</div>
-    <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.custom}</label></div>
-    <div class="svy-chips" id="chips-custom">${chipsHtml('custom')}</div>
-    <div class="list-add"><select id="add-list" class="nonesel">${addListOptions()}</select></div>
   </details>
 
   <details class="group">
@@ -417,25 +401,10 @@ function wireSidebar() {
   };
   for (const box of ['chips-via', 'chips-top', 'chips-custom']) {
     $(box).addEventListener('click', e => {
-      const drop = e.target.closest?.('[data-drop]')?.dataset?.drop;
-      if (drop) {
-        e.stopPropagation();
-        EXTRA_ADDED.delete(drop); storeExtras();
-        if (state.listSrc.includes(drop)) toggleList(drop, false);
-        refreshChips();
-        return;
-      }
       const id = e.target.closest?.('.chip-btn')?.dataset?.src;
       if (id) toggleList(id, !state.listSrc.includes(id));
     });
   }
-  $('add-list').addEventListener('change', e => {
-    const id = e.target.value;
-    if (!id) return;
-    EXTRA_ADDED.add(id); storeExtras();
-    toggleList(id, true);
-    refreshChips();
-  });
   $('ovl-sky').addEventListener('click', e => { const v = !state.viaOn; e.currentTarget.classList.toggle('on', v); set({ viaOn: v }); });
   $('ovl-3d').addEventListener('click', e => { const v = !state.via3d; e.currentTarget.classList.toggle('on', v); set({ via3d: v }); });
   $('lists-group').addEventListener('toggle', e => set({ listsOpen: e.target.open }, 'layout'));
@@ -559,9 +528,7 @@ function refreshCatalogs() {
 }
 function refreshChips() {
   if (!$('chips-via')) return;
-  for (const id of state.listSrc) if (EXTRA_LISTS.some(x => x.id === id)) EXTRA_ADDED.add(id);
   for (const [box, g] of [['chips-via', 'via'], ['chips-top', 'top'], ['chips-custom', 'custom']]) $(box).innerHTML = chipsHtml(g);
-  $('add-list').innerHTML = addListOptions(); syncNoneSel($('add-list'));
   $('ovl-sky')?.classList.toggle('on', state.viaOn);
   $('ovl-3d')?.classList.toggle('on', state.via3d);
 }
@@ -577,7 +544,7 @@ function syncFov() {
     fovEl.value = Math.min(5, Math.max(1, state.fov));
   }
   $('fov-note').textContent = state.fov <= 1.001 ? '1 pointing'
-    : `≈ ${Math.round(state.fov ** 2)} pointings${coverN ? ` (${coverN} shown)` : ''}`;
+    : `≈ ${Math.round(state.fov ** 2)} pointings${coverN ? ` (${coverN} selected)` : ''}`;
   for (const s of document.querySelectorAll('.fov-snap, .fov-dot')) {
     s.classList.toggle('active', Math.abs(parseFloat(s.dataset.fov) - state.fov) < 0.01);
   }
@@ -745,7 +712,6 @@ async function boot() {
     if (state.mode === 'dens') state.mode = 'dist';
     state.theme = 'dark';
     applyTheme('dark');
-    loadExtras();
     $('layout').classList.toggle('sb-open', state.sidebar);
     $('layout').classList.toggle('sb-closed', !state.sidebar);
     histSeed();
@@ -777,12 +743,20 @@ async function boot() {
       camera: mode => tourCamera(mode),
       showPlayer: () => {
         if (!state.listsOpen) { tourOpenedGroup = true; $('lists-group').open = true; set({ listsOpen: true }, 'layout'); }
-        if (!state.listSrc.length) { tourOpenedList = true; set({ listSrc: ['via:sps'] }, 'lists'); rebuild(); }
+        if (!state.listSrc.length) {
+          tourOpenedList = true;
+          set({ listSrc: ['via:sps'] }, 'lists'); rebuild();
+          const i = nearestIndex(state.lam0, state.bet0);     // the planned Streams field next to the start field
+          if (i >= 0) gotoIndex(i);
+        }
       },
       onEnd: () => {
         tourCamera('halo');
         showTab('field');
-        if (tourOpenedList) { tourOpenedList = false; set({ listSrc: [], listPos: -1 }, 'lists'); rebuild(); }
+        if (tourOpenedList) {
+          tourOpenedList = false; set({ listSrc: [], listPos: -1 }, 'lists'); rebuild();
+          replaceLock(null); slideField(DEFAULT_FIELD.lam, DEFAULT_FIELD.bet);
+        }
         if (tourOpenedGroup) { tourOpenedGroup = false; $('lists-group').open = false; set({ listsOpen: false }, 'layout'); }
       },
     });
@@ -801,7 +775,7 @@ async function boot() {
       ['quaia', () => loadQuaia(DATA_DIR)], ['halo RRL', () => loadHalo(DATA_DIR)],
       ['K giants', () => loadKgiants(DATA_DIR)], ['BHB', () => loadBhb(DATA_DIR)],
       ['Kepler stars', () => loadKepler(DATA_DIR)], ['Geha members', () => loadGeha(DATA_DIR)],
-      ['dust', () => loadDust(DATA_DIR)], ['3D dust', () => loadDust3d(DATA_DIR)],
+      ['3D dust', () => loadDust3d(DATA_DIR)],
     ];
     for (const [nm, fn] of lazy) {
       fn().then(n => { console.log(`[viasual3] ${nm} loaded: ${n}`); emit('catalog', nm); });

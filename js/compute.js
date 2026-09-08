@@ -189,37 +189,7 @@ export function visibleFrom(siteLat, dec, altMin) {
 }
 
 // sample a plate-carree grid (rows = b from -90, cols = l from -180, step deg) at (l, b)
-export function hiSample(grid, ny, nx, step, l, b) {
-  let li = Math.round((wrap180(l) + 180) / step);
-  let bi = Math.round((b + 90) / step);
-  if (li < 0) li = 0; else if (li > nx - 1) li = nx - 1;
-  if (bi < 0) bi = 0; else if (bi > ny - 1) bi = ny - 1;
-  return grid[bi * nx + li];
-}
-
-// mean/peak of a linear grid inside a spherical cap; gridUG built lazily by caller
-export function hiStatsInField(linGrid, gridL, gridB, ny, nx, l0, b0, radius) {
-  const [ux, uy, uz] = unitVector1(l0, b0);
-  const cosr = Math.cos(radius * D2R);
-  let sum = 0, cnt = 0, peak = -Infinity;
-  // grid cells: iterate only the lat band that can intersect the cap
-  const bLo = Math.max(0, Math.floor((b0 - radius + 90) / (gridB[1] - gridB[0])));
-  const bHi = Math.min(ny - 1, Math.ceil((b0 + radius + 90) / (gridB[1] - gridB[0])));
-  for (let bi = bLo; bi <= bHi; bi++) {
-    const br = gridB[bi] * D2R, cb = Math.cos(br), sb = Math.sin(br);
-    for (let li = 0; li < nx; li++) {
-      const lr = gridL[li] * D2R;
-      const dot = cb * Math.cos(lr) * ux + cb * Math.sin(lr) * uy + sb * uz;
-      if (dot < cosr) continue;
-      const v = linGrid[bi * nx + li];
-      if (!Number.isFinite(v)) continue;
-      sum += v; cnt++;
-      if (v > peak) peak = v;
-    }
-  }
-  if (!cnt) return null;
-  return { peak, mean: sum / cnt };
-}
+// (grid sampling + cap statistics moved to data.js: gridSample / gridSampleBL / gridStats)
 
 // ---- Mollweide (same -l flip + Newton iteration as core.py) --------------------
 export const SQ2 = Math.SQRT2;
@@ -334,26 +304,3 @@ export function median(values) {
 
 // mean of a grid inside a spherical cap; `logGrid` = values are log10 (average linearly,
 // return log10 of the mean). Returns NaN when no finite cell falls inside.
-export function gridMeanInField(grid, gridL, gridB, ny, nx, l0, b0, radius, logGrid = false) {
-  const [ux, uy, uz] = unitVector1(l0, b0);
-  const cosr = Math.cos(radius * D2R);
-  const dB = gridB[1] - gridB[0];
-  let sum = 0, cnt = 0, peak = -Infinity;
-  const bLo = Math.max(0, Math.floor((b0 - radius + 90) / dB));
-  const bHi = Math.min(ny - 1, Math.ceil((b0 + radius + 90) / dB));
-  for (let bi = bLo; bi <= bHi; bi++) {
-    const br = gridB[bi] * D2R, cb = Math.cos(br), sb = Math.sin(br);
-    for (let li = 0; li < nx; li++) {
-      const lr = gridL[li] * D2R;
-      if (cb * Math.cos(lr) * ux + cb * Math.sin(lr) * uy + sb * uz < cosr) continue;
-      let v = grid[bi * nx + li];
-      if (!Number.isFinite(v)) continue;
-      if (logGrid) v = 10 ** v;
-      sum += v; cnt++;
-      if (v > peak) peak = v;
-    }
-  }
-  if (!cnt) return null;
-  const mean = sum / cnt;
-  return logGrid ? { mean: Math.log10(mean), peak: Math.log10(peak) } : { mean, peak };
-}

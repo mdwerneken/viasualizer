@@ -38,7 +38,17 @@ link (path and hash preserved) to `/viasual-app/`.
   from the base link), ⌘Z / ⌘⇧Z undo/redo of field moves, scroll-wheel FOV on the field view,
   a field-list explorer bar (manual stepping, field dropdown, typed position, save), full-screen
   Galactic frame with scroll-zoom and the field view / Map layers / legend docked inside it,
-  outlined card panels, catalog chips, the magnitude limit applied to members + tracers in 3D too.
+  outlined card panels, catalog chips, the magnitude limit applied to members + tracers in 3D too;
+  v3.5: full-screen Sgr strip gets the same docked panels, the explorer bar lists promising fields
+  first, Bish+19 is a standing custom collection.
+- **Background maps (v3.5, `data/maps.npz`, 11 MB).** One 5′ (1/12°) plate-carrée grid built by
+  `tools/build_maps.py`: HI4PI total N(HI) (uint8 log, 0.017 dex steps, from the CDS HEALPix
+  Nside-1024 table), Westmeier-2018 HVC N(HI) (uint8 log, floor 17.0) and **HVC v_LSR / v_GSR**
+  (int16, 0.1 km/s; blank where the product has no velocity — about half the HVC-covered pixels,
+  nearly all the faint ones), SFD98 E(B−V) (uint8 log). Grids stay as byte arrays in the browser and
+  decode on sample; the field view samples them bilinearly on a 112² raster, the sky maps and the Sgr
+  strip per pixel. Velocity backgrounds use a symmetric diverging stretch and add an in-field mean
+  velocity line to the Targets box. Edenhofer slices keep their own 0.25° grid (`dust3d.npz`).
 
 ## Layout
 

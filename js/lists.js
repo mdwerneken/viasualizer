@@ -84,23 +84,22 @@ function historyItems() {
 
 export function initLists() {
   SOURCES.length = 0;
+  SOURCES.push({ id: 'top', group: 'top', color: TOP_COL, title: 'Best by distance coverage', short: 'Best by distance coverage', items: () => topItems('top') });
+  SOURCES.push({ id: 'topvia', group: 'top', color: TOP_COL, title: 'Best including a Via stream', short: 'Best including a Via stream', items: () => topItems('via') });
   if (D.VIA) {
-    for (const svy of D.VIA.SVY_KEYS) {
-      if (svy === 'rbs') continue;    // 4 placeholder rows in the rbs visit list — folded into 'tfs' (Matt 9-7-26)
+    // display order (Matt 9-7-26): streams, dwarfs, cold gas, transients, kepler; rbs (4 placeholder rows) folded into tfs
+    for (const svy of ['sps', 'dgs', 'cgs', 'tfs', 'krs']) {
+      if (!D.VIA.SVY_KEYS.includes(svy)) continue;
       SOURCES.push({ id: `via:${svy}`, group: 'via', svy, color: SVY_COL[svy],
         title: `${D.VIA.surveys[svy]} (${svy.toUpperCase()})`, short: SVY_SHORT[svy] ?? svy, items: () => viaItems(svy) });
     }
   }
-  SOURCES.push({ id: 'top', group: 'top', color: TOP_COL, title: 'Top 20 by distance rungs', short: 'Top 20 by rungs', items: () => topItems('top') });
-  SOURCES.push({ id: 'topvia', group: 'top', color: TOP_COL, title: 'Best with a Via stream', short: 'Best with a Via stream', items: () => topItems('via') });
-  SOURCES.push({ id: 'saved', group: 'custom', color: CUSTOM_COL, title: 'Saved fields', short: 'Saved', items: savedItems });
-  SOURCES.push({ id: 'history', group: 'custom', color: CUSTOM_COL, title: 'Recently visited', short: 'Visited', items: historyItems });
+  SOURCES.push({ id: 'saved', group: 'custom', color: CUSTOM_COL, title: 'Saved fields', short: 'Saved fields', items: savedItems });
   for (const x of EXTRA_LISTS) {
-    SOURCES.push({ id: x.id, group: 'custom', color: x.color, title: x.title, short: x.short ?? x.title, extra: true,
+    SOURCES.push({ id: x.id, group: 'custom', color: x.color, title: x.title, short: x.short ?? x.title,
       items: x.id === 'bish19' ? bishItems : () => [] });
   }
   on('saved', () => { if (state.listSrc.includes('saved')) rebuild(); });
-  on('history', () => { if (state.listSrc.includes('history')) rebuild(false); });
   on('ui', () => { if (state.listSrc.some(s => s.startsWith('top'))) rebuild(); invalidateScores(); });
   on('catalog', () => invalidateScores());
   rebuild();
@@ -108,11 +107,13 @@ export function initLists() {
 
 // ---- the active list ------------------------------------------------------------------
 export const LIST = { items: [], order: [], key: '', scoring: null, scored: 0 };
+let scoreGen = 0;
 let scoreCache = new Map();     // `${lam}|${bet}|${fov}` -> score
 
 export function sourceById(id) { return SOURCES.find(s => s.id === id); }
 
 export function rebuild(resetPos = true) {
+  scoreGen++;                                  // a running pass restarts on the new item set (cache kept)
   const items = [];
   for (const id of state.listSrc) {
     const s = sourceById(id);
@@ -159,7 +160,6 @@ function decOf(it) {
 }
 
 // ---- background scoring (idle chunks; same rules as the live field) -----------------
-let scoreGen = 0;
 export function invalidateScores() {
   scoreCache = new Map();
   for (const it of LIST.items) it.score = null;
@@ -184,7 +184,7 @@ export function startScoring() {
       const R = computeField(it.lam, it.bet, it.fov, { light: true });
       it.score = {
         rungs: R.ladder.nRungs, tie: R.ladder.tie, targets: R.fibers.targets, qso: R.qq.length,
-        nhi: R.hi ? Math.log10(R.hi.mean) : NaN, vMMT: R.vMMT, vMag: R.vMag, stars: R.idx.length,
+        nhi: R.hiTotal ? R.hiTotal.logMean : NaN, vMMT: R.vMMT, vMag: R.vMag, stars: R.idx.length,
         ladder: R.ladder.groups.map(g => g[0].dist).concat(R.ladder.qsoRung ? [Infinity] : []),
       };
       scoreCache.set(scoreKey(it), it.score);
@@ -196,12 +196,16 @@ export function startScoring() {
   nextTick(step);
 }
 
-// MessageChannel scheduling: unlike setTimeout it is not throttled to 1 Hz in a
-// background tab, so a list still finishes ranking while the user looks elsewhere
+// Scheduling: setTimeout(0) while the tab is visible (a MessageChannel self-post starves
+// every timer — tour, transitions, slides — for the whole pass; 9-7-26). In a hidden tab
+// timers throttle to 1 Hz, so fall back to the MessageChannel there.
 const _mc = new MessageChannel();
 const _tickQueue = [];
 _mc.port1.onmessage = () => { const fn = _tickQueue.shift(); if (fn) fn(); };
-function nextTick(fn) { _tickQueue.push(fn); _mc.port2.postMessage(0); }
+function nextTick(fn) {
+  if (document.hidden) { _tickQueue.push(fn); _mc.port2.postMessage(0); }
+  else setTimeout(fn, 0);
+}
 
 // ---- navigation ---------------------------------------------------------------------
 export function currentItem() { return state.listPos >= 0 ? LIST.order[state.listPos] : null; }
@@ -215,6 +219,16 @@ export function gotoIndex(i, opts = {}) {
   replaceLock({ kind: 'list', id: `${it.src}:${it.ref}`, name: it.label, svy: it.svy, dist: it.dist });
   slideField(it.lam, it.bet, { keepLock: true });
   emit('list');
+}
+export function nearestIndex(lam, bet) {
+  let best = -1, bd = -2;
+  const u = C.unitVector1(lam, bet);
+  LIST.order.forEach((it, i) => {
+    const v = C.unitVector1(it.lam, it.bet);
+    const d = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    if (d > bd) { bd = d; best = i; }
+  });
+  return best;
 }
 export function stepList(d) { if (LIST.order.length) gotoIndex((state.listPos < 0 ? (d > 0 ? -1 : 0) : state.listPos) + d); }
 

@@ -83,7 +83,7 @@ export function syncListFlags() {
 
 // ---- persisted preferences (sidebar, layer toggles) ---------------------------------
 const PREF_KEYS = ['sidebar', 'listsOpen', 'viaOn', 'via3d', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
-  'cloudsOn', 'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'diskOn', 'listSort'];
+  'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'diskOn', 'listSort'];
 let prefTimer = null;
 function savePrefs() {
   clearTimeout(prefTimer);

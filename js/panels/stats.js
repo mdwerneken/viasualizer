@@ -78,10 +78,11 @@ function render() {
   } else if (!D.QSO && state.qsoOn) L.push(`<div><span class="tiny">quasars loading…</span></div>`);
   // gas + dust along the sightline
   const gas = [];
-  if (F.hiTotal) gas.push(`log N(HI) <b>${Math.log10(F.hiTotal.mean).toFixed(2)}</b> mean · ${Math.log10(F.hiTotal.peak).toFixed(2)} peak`);
-  if (state.himap === 'hvc') gas.push(F.hi ? `HVC log N(HI) <b>${Math.log10(F.hi.mean).toFixed(2)}</b>` : 'no HVC gas in field');
-  if (F.ebv) gas.push(`E(B−V) <b>${(10 ** F.ebv.mean).toFixed(3)}</b> mag (SFD, all distances)`);
-  if (F.e3d) gas.push(`ZGR23 E <b>${(10 ** F.e3d.mean).toFixed(3)}</b> within ${{ e300: '300 pc', e600: '600 pc', e1250: '1.25 kpc' }[state.himap]} (Edenhofer+24; A<sub>V</sub> ≈ 2.8 E)`);
+  if (F.hiTotal) gas.push(`log N(HI) <b>${F.hiTotal.logMean.toFixed(2)}</b> mean · ${F.hiTotal.logPeak.toFixed(2)} peak`);
+  if (['hvc', 'overlay', 'vlsr', 'vgsr'].includes(state.himap)) gas.push(F.hi ? `HVC log N(HI) <b>${F.hi.logMean.toFixed(2)}</b> mean · ${F.hi.logPeak.toFixed(2)} peak` : 'no HVC gas in field');
+  if (F.vel) gas.push(`HVC ${state.himap === 'vlsr' ? 'v<sub>LSR</sub>' : 'v<sub>GSR</sub>'} <b>${F.vel.mean.toFixed(0)}</b> km/s mean (intensity-weighted, Westmeier 2018)`);
+  if (F.ebv) gas.push(`E(B−V) <b>${F.ebv.mean.toFixed(3)}</b> mag (SFD, all distances)`);
+  if (F.e3d) gas.push(`ZGR23 E <b>${F.e3d.mean.toFixed(3)}</b> within ${{ e300: '300 pc', e600: '600 pc', e1250: '1.25 kpc' }[state.himap]} (Edenhofer+24; A<sub>V</sub> ≈ 2.8 E)`);
   if (state.cloudsOn && F.cloudsInField) {
     if (F.cloudsInField.length) {
       gas.push(`<b>${F.cloudsInField.length} HVC ${plural(F.cloudsInField.length, 'cloud')}</b> overlapping — hover the outline in the field view`);

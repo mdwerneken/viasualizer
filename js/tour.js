@@ -8,15 +8,15 @@ const STEPS = [
   { sel: null, title: 'Explore halo sightlines',
     text: 'This is a tool for exploring Via fields in the halo. You can change which objects are shown, find and save interesting fields, and learn about the 3D distribution of known (or best-estimate) halo sources.' },
   { sel: '#scene', title: '3D view (interactive)', cam: 'sun',
-    text: 'Red arrow shows the field direction, and can be dragged. Click and drag anywhere to rotate, right-click to pan, scroll to zoom. Click an object to pin its label, and double-click to point at it.' },
-  { sel: ['#p-finder', '[data-tab="field"]'], title: 'Field view (interactive)', tab: 'field',
-    text: 'Projected field (default 1°), showing stars and quasars on a background map (default HI). Drag to pan, hover objects for info, double-click to center, or expand to full screen.' },
-  { sel: ['#p-allsky', '[data-tab="sky"]'], title: 'Sky maps', tab: 'sky',
-    text: 'The all-sky view in Galactic and Sagittarius-Stream coordinates. Click anywhere to point there.' },
+    text: 'Red arrow shows the field direction, and can be dragged.<br><br>Click and drag anywhere to rotate, right-click to pan, scroll to zoom.<br><br>Click an object to pin its label, and double-click to point at it.' },
+  { sel: ['#p-finder', '[data-tab="field"]'], spanX: '#dossier', title: 'Field view (interactive)', tab: 'field',
+    text: 'Projected field (default 1°), showing stars and quasars on a background map (default HI).<br><br>Drag to pan, hover objects for info, double-click to center.' },
+  { sel: ['#p-allsky', '[data-tab="sky"]'], spanX: '#dossier', title: 'Sky maps', tab: 'sky',
+    text: 'The all-sky view in Galactic and Sagittarius-Stream coordinates.<br><br>Click anywhere to point there.<br><br>Press ⤢ to explore in full screen.' },
   { sel: '#sidebar', title: 'Controls', open: true, tab: 'field',
-    text: 'Select objects based on brightness, type, catalog, and more. Change and save fields. Press ☰ to collapse.' },
-  { sel: '#player', title: 'Scroll through selected fields', prep: 'player',
-    text: 'Sort and scroll through Via\'s planned pointings, best-ranked cold gas fields, or custom field lists.' },
+    text: 'Select objects based on brightness, type, catalog, and more. Change and save fields.<br><br>Press ☰ to collapse.' },
+  { sel: ['#player', '#lists-group'], title: 'Browse fields', prep: 'player',
+    text: 'Sort and scroll through Via\'s planned pointings, promising cold gas fields, or custom lists.' },
 ];
 
 let idx = 0, root, spot, card, shades = [], hooks = {};
@@ -157,6 +157,9 @@ function place() {
   }
   const r = { left: Math.min(...rects.map(q => q.left)), top: Math.min(...rects.map(q => q.top)),
     right: Math.max(...rects.map(q => q.right)), bottom: Math.max(...rects.map(q => q.bottom)) };
+  // spanX: take the horizontal extent from a container (so the Field and Sky boxes line up)
+  const sx = s.spanX ? document.querySelector(s.spanX)?.getBoundingClientRect() : null;
+  if (sx) { r.left = sx.left; r.right = sx.right; }
   const pad = 6;
   const x0 = r.left - pad, y0 = r.top - pad, x1 = r.right + pad, y1 = r.bottom + pad;
   setShades(x0, y0, x1, y1);

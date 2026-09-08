@@ -63,7 +63,7 @@ export function makeExpandable(wrap, { onToggle, hint } = {}) {
       setTimeout(() => { wrap.style.transition = ''; wrap.style.opacity = ''; }, 200);
     }, 120);
   }
-  btn.addEventListener('click', e => { e.stopPropagation(); open(); });
+  btn.addEventListener('click', e => { e.stopPropagation(); if (document.body.classList.contains('tour-on')) return; open(); });
   close.addEventListener('click', e => { e.stopPropagation(); shut(); });
   window.addEventListener('keydown', e => { if (e.key === 'Escape' && expanded) shut(); });
   return { isExpanded: () => expanded, collapse: shut, expand: open };
