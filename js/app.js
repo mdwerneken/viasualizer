@@ -274,7 +274,7 @@ function buildSidebar() {
     </div>
     <div class="row"><label class="ctl-lab lab-row"><span>limit G ≤ <b id="ghi-v">${state.ghi.toFixed(1)}</b></span>
       <button class="hl-btn ${state.hide ? 'on' : ''}" id="hide-chk" title="hide sources fainter than the limit everywhere">hide fainter sources</button></label>
-      <input type="range" id="ghi" min="${D.GMIN.toFixed(2)}" max="${D.GMAX.toFixed(2)}" step="0.1" value="${state.ghi}">
+      <input type="range" id="ghi" min="${Math.ceil(D.GMIN * 2) / 2}" max="${Math.floor(D.GMAX * 2) / 2}" step="0.5" value="${Math.round(state.ghi * 2) / 2}">
     </div>
   </div>
 
