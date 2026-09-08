@@ -120,7 +120,7 @@ export function applyTheme(name) {
 }
 
 export const HEMI_COL = { 0: '#4e9cd6', 1: '#57c069', 2: '#e06060' };  // S / Both / N
-export const HEMI_LBL = { 0: 'S', 1: 'Both', 2: 'N' };
+export const HEMI_LBL = { 0: 'S / Magellan', 1: 'Both', 2: 'N / MMT' };
 
 export function streamColor(code) { return PALETTE[code % PALETTE.length]; }
 export function streamColorByName(name) {

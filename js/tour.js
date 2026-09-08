@@ -10,16 +10,16 @@ const STEPS = [
   { sel: '#scene', title: '3D view (interactive)', cam: 'sun',
     text: 'Red arrow shows the field direction, and can be dragged.<br><br>Click and drag anywhere to rotate, right-click to pan, scroll to zoom.<br><br>Click an object to pin its label, and double-click to point at it.' },
   { sel: ['#p-finder', '[data-tab="field"]'], spanX: '#dossier', title: 'Field view (interactive)', tab: 'field',
-    text: 'Projected field (default 1°), showing stars and quasars on a background map (default HI).<br><br>Drag to pan, hover objects for info, double-click to center.' },
+    text: 'Projected field, showing objects on-sky. Hover them for info.<br><br>Drag to pan, double-click to center, or scroll to change FOV.' },
   { sel: ['#p-allsky', '[data-tab="sky"]'], spanX: '#dossier', title: 'Sky maps', tab: 'sky',
-    text: 'The all-sky view in Galactic and Sagittarius-Stream coordinates.<br><br>Click anywhere to point there.<br><br>Press ⤢ to explore in full screen.' },
+    text: 'The all-sky view in Galactic coordinates.<br><br>Click anywhere to point there.<br><br>Press ⤢ to explore in full screen (after tutorial).' },
   { sel: '#sidebar', title: 'Controls', open: true, tab: 'field',
-    text: 'Select objects based on brightness, type, catalog, and more. Change and save fields.<br><br>Press ☰ to collapse.' },
-  { sel: ['#player', '#lists-group'], title: 'Browse fields', prep: 'player',
+    text: 'Change view based on brightness, object type, catalog, and more. Change and save fields.<br><br>Press ☰ to hide.' },
+  { sel: ['#player', '#lists-group'], separate: true, title: 'Browse fields', prep: 'player',
     text: 'Sort and scroll through Via\'s planned pointings, promising cold gas fields, or custom lists.' },
 ];
 
-let idx = 0, root, spot, card, shades = [], hooks = {};
+let idx = 0, root, shadePath, spots, card, hooks = {};
 let camOn = false;
 
 export function tourDone() { try { return localStorage.getItem(LS_TOUR) === '1'; } catch { return false; } }
@@ -27,12 +27,14 @@ export function tourDone() { try { return localStorage.getItem(LS_TOUR) === '1';
 export function initTour(h = {}) {
   hooks = h;
   root = document.getElementById('tour');
-  root.innerHTML = `<div class="tour-shade"></div><div class="tour-shade"></div><div class="tour-shade"></div><div class="tour-shade"></div>
-    <div class="tour-spot"></div><div class="tour-card"></div>`;
-  shades = [...root.querySelectorAll('.tour-shade')];
-  spot = root.querySelector('.tour-spot');
+  // one SVG shade: a full-screen path with even-odd holes for each spotlight, so any
+  // number of spotlit areas stay interactive while the shade (and only the shade) advances
+  root.innerHTML = `<svg class="tour-shade" xmlns="http://www.w3.org/2000/svg"><path class="shade-path" fill-rule="evenodd"/><g class="spots"></g></svg>
+    <div class="tour-card"></div>`;
+  shadePath = root.querySelector('.shade-path');
+  spots = root.querySelector('.spots');
   card = root.querySelector('.tour-card');
-  for (const sh of shades) sh.addEventListener('click', next);
+  shadePath.addEventListener('click', next);
   window.addEventListener('keydown', e => {
     if (root.hidden) return;
     if (e.key === 'Escape') end();
@@ -69,11 +71,11 @@ function end() {
     card.classList.add('fly');
     card.style.transform = `translate(${a.left - r.left}px, ${a.top - r.top}px) scale(${a.width / r.width}, ${a.height / r.height})`;
     card.style.opacity = '0';
-    for (const sh of shades) sh.style.opacity = '0';
+    root.querySelector('.tour-shade').style.opacity = '0';
     setTimeout(() => {
       root.hidden = true;
       card.classList.remove('fly'); card.style.transform = ''; card.style.opacity = '';
-      for (const sh of shades) sh.style.opacity = '';
+      root.querySelector('.tour-shade').style.opacity = '';
       setTimeout(() => lit?.classList.remove('lit'), 700);
       hooks.onEnd?.();
     }, 420);
@@ -131,42 +133,37 @@ function flyFromAnchor() {
   setTimeout(() => { card.classList.remove('fly'); card.style.transform = ''; card.style.opacity = ''; lit?.classList.remove('lit'); }, 480);
 }
 
-function setShades(x0, y0, x1, y1) {
+// shade = whole viewport minus the hole rectangles (even-odd fill); amber outlines per hole
+function setShades(holes) {
   const vw = window.innerWidth, vh = window.innerHeight;
-  const put = (el, l, t, w, h) => { el.style.left = `${l}px`; el.style.top = `${t}px`; el.style.width = `${Math.max(0, w)}px`; el.style.height = `${Math.max(0, h)}px`; };
-  put(shades[0], 0, 0, vw, y0);                 // top
-  put(shades[1], 0, y1, vw, vh - y1);           // bottom
-  put(shades[2], 0, y0, x0, y1 - y0);           // left
-  put(shades[3], x1, y0, vw - x1, y1 - y0);     // right
+  let d = `M0 0H${vw}V${vh}H0Z`;
+  for (const h of holes) d += `M${h.x0} ${h.y0}H${h.x1}V${h.y1}H${h.x0}Z`;
+  shadePath.setAttribute('d', d);
+  spots.innerHTML = holes.map(h => `<rect x="${h.x0}" y="${h.y0}" width="${h.x1 - h.x0}" height="${h.y1 - h.y0}" rx="10"/>`).join('');
 }
 
 function place() {
   const s = STEPS[idx];
-  // one selector or several: the spotlight is the union of their rectangles (e.g. a panel
-  // plus the tab button that owns it)
   const sels = s.sel ? (Array.isArray(s.sel) ? s.sel : [s.sel]) : [];
   const rects = sels.map(q => document.querySelector(q)).filter(t => t && !t.hidden && t.getClientRects().length).map(t => t.getBoundingClientRect());
   const vw = window.innerWidth, vh = window.innerHeight;
   const cw = 480, ch = card.offsetHeight || 250;
   if (!rects.length) {
-    setShades(vw / 2, vh / 2, vw / 2, vh / 2);
-    spot.style.left = `${vw / 2}px`; spot.style.top = `${vh / 2}px`; spot.style.width = '0px'; spot.style.height = '0px';
-    spot.style.borderColor = 'transparent'; spot.style.boxShadow = 'none';
+    setShades([]);
     card.style.left = `${(vw - cw) / 2}px`; card.style.top = `${(vh - ch) / 2}px`;
     return;
   }
-  const r = { left: Math.min(...rects.map(q => q.left)), top: Math.min(...rects.map(q => q.top)),
-    right: Math.max(...rects.map(q => q.right)), bottom: Math.max(...rects.map(q => q.bottom)) };
+  const pad = 6;
   // spanX: take the horizontal extent from a container (so the Field and Sky boxes line up)
   const sx = s.spanX ? document.querySelector(s.spanX)?.getBoundingClientRect() : null;
-  if (sx) { r.left = sx.left; r.right = sx.right; }
-  const pad = 6;
-  const x0 = r.left - pad, y0 = r.top - pad, x1 = r.right + pad, y1 = r.bottom + pad;
-  setShades(x0, y0, x1, y1);
-  spot.style.borderColor = ''; spot.style.boxShadow = '';
-  spot.style.left = `${x0}px`; spot.style.top = `${y0}px`;
-  spot.style.width = `${x1 - x0}px`; spot.style.height = `${y1 - y0}px`;
-  // card: to the right of the target if room, else left, else below/above
+  const box = q => ({ x0: (sx ? sx.left : q.left) - pad, y0: q.top - pad, x1: (sx ? sx.right : q.right) + pad, y1: q.bottom + pad });
+  const holes = s.separate ? rects.map(box) : [box({
+    left: Math.min(...rects.map(q => q.left)), top: Math.min(...rects.map(q => q.top)),
+    right: Math.max(...rects.map(q => q.right)), bottom: Math.max(...rects.map(q => q.bottom)) })];
+  setShades(holes);
+  // card: to the right of the spotlit region if room, else left, else below/above
+  const r = { left: Math.min(...holes.map(h => h.x0)), top: Math.min(...holes.map(h => h.y0)),
+    right: Math.max(...holes.map(h => h.x1)), bottom: Math.max(...holes.map(h => h.y1)) };
   let x, y;
   if (r.right + 16 + cw < vw) { x = r.right + 16; y = Math.min(Math.max(12, r.top), vh - ch - 12); }
   else if (r.left - 16 - cw > 0) { x = r.left - 16 - cw; y = Math.min(Math.max(12, r.top), vh - ch - 12); }
