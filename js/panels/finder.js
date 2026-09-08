@@ -4,6 +4,7 @@
 // GC/dwarf/member/tracer/QSO markers, Via planned-pointing circles, literature
 // sightlines, hover readout, dblclick-to-recenter, drag-to-pan, scroll-wheel FOV (1–5°,
 // small or enlarged), tiled 1-degree pointings when FOV > 1, and rung pop-outs.
+// Displayed with Galactic north up / ℓ increasing left (see tanToDisp).
 import { D, bgGridFor, gridSampleBL } from '../data.js';
 import { state, set, setField, slideField, replaceLock, emit, on } from '../state.js';
 import { F, KIND } from '../fieldmodel.js';
@@ -40,8 +41,23 @@ export function initFinder(container) {
   wirePointer();
 }
 
-function toPx(xiAm, etaAm) { return [px.cx + xiAm * px.scale, px.cy - etaAm * px.scale]; }
-function fromPx(x, y) { return [(x - px.cx) / px.scale, -(y - px.cy) / px.scale]; }
+// Display orientation (Matt 9-8-26): Galactic north up and Galactic longitude increasing
+// to the LEFT, like the Galactic-frame sky map. The catalogue geometry stays in the Sgr
+// tangent plane (xi along +Lambda, eta along +B); tanToDisp rotates by the position angle
+// of Galactic north at the field centre and mirrors x.
+let rotC = 1, rotS = 0;
+function updateOrientation() {
+  const [gl, gb] = C.convPoint(D.M_SGR, D.M_GAL, state.lam0, state.bet0);
+  const sgn = gb > 89.5 ? -1 : 1;                       // step away from the pole if needed
+  const [lam1, bet1] = C.convPoint(D.M_GAL, D.M_SGR, gl, gb + sgn * 0.1);
+  const [xi, eta] = C.gnomonic(Float64Array.of(lam1), Float64Array.of(bet1), state.lam0, state.bet0);
+  const phi = Math.atan2(sgn * xi[0], sgn * eta[0]);
+  rotC = Math.cos(phi); rotS = Math.sin(phi);
+}
+const tanToDisp = (xi, eta) => [-(xi * rotC - eta * rotS), xi * rotS + eta * rotC];
+const dispToTan = (X, Y) => [-X * rotC + Y * rotS, X * rotS + Y * rotC];
+function toPx(xiAm, etaAm) { const [X, Y] = tanToDisp(xiAm, etaAm); return [px.cx + X * px.scale, px.cy - Y * px.scale]; }
+function fromPx(x, y) { return dispToTan((x - px.cx) / px.scale, -(y - px.cy) / px.scale); }
 
 // does a source belong to the active pop-out highlight?
 function inHilite(kind, structKey, dist, rawName = null) {
@@ -70,6 +86,7 @@ function draw() {
   const Ram = state.fov / 2 * 60;
   px.R = Math.min(w, h) / 2 - 8; px.cx = w / 2; px.cy = h / 2;
   px.scale = px.R / Ram;
+  updateOrientation();
   hitList = [];
 
   ctx.save();
@@ -97,6 +114,12 @@ function draw() {
 
   // field rim
   circleOutline(ctx, px.cx, px.cy, px.R, UI.accent, 2.2);
+  // compass: Galactic N up, ℓ increasing to the left
+  const cxC = w - (big ? 40 : 26), cyC = big ? h - 40 : h - 28, arm = big ? 16 : 10;
+  ctx.strokeStyle = UI.textDim; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cxC, cyC); ctx.lineTo(cxC, cyC - arm); ctx.moveTo(cxC, cyC); ctx.lineTo(cxC - arm, cyC); ctx.stroke();
+  label(ctx, 'N', cxC, cyC - arm - 3, { align: 'center', size: big ? 10 : 8, color: UI.textDim });
+  label(ctx, 'ℓ+', cxC - arm - 3, cyC + 3, { align: 'right', size: big ? 10 : 8, color: UI.textDim });
   const sx0 = big ? 22 : 8;
   const bar = 15 * px.scale;
   ctx.fillStyle = UI.textDim;
@@ -156,8 +179,8 @@ function drawBackground(ctx, Ram) {
     const vals = new Float64Array(n * n);
     for (let iy = 0, k = 0; iy < n; iy++) {
       for (let ix = 0; ix < n; ix++, k++) {
-        const xiR = (-Ram + (ix + 0.5) * (2 * Ram / n)) / 60 * D2R;
-        const etaR = (Ram - (iy + 0.5) * (2 * Ram / n)) / 60 * D2R;
+        const [xiAm, etaAm] = dispToTan(-Ram + (ix + 0.5) * (2 * Ram / n), Ram - (iy + 0.5) * (2 * Ram / n));
+        const xiR = xiAm / 60 * D2R, etaR = etaAm / 60 * D2R;
         const dx = c[0] + xiR * eXi[0] + etaR * eEta[0];
         const dy = c[1] + xiR * eXi[1] + etaR * eEta[1];
         const dz = c[2] + xiR * eXi[2] + etaR * eEta[2];
@@ -510,7 +533,7 @@ function wirePointer() {
         tipEl.style.display = 'none';
       }
       if (panning) {
-        const dXi = -dx / px.scale, dEta = dy / px.scale;
+        const [dXi, dEta] = dispToTan(-dx / px.scale, dy / px.scale);
         const [lo, la] = C.gnomonicInv(dXi, dEta, panStart.lam, panStart.bet);
         setField(C.wrap180(lo), la, { live: true });
         return;

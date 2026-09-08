@@ -180,7 +180,7 @@ function drawKindHist(id, values, title, xlab, infBin, labFmt, note, rungTicks) 
 }
 
 // backlights beyond distance d: N(dist > d) on a log axis; quasars add a constant floor
-const FIBER_MIN_SEP = 1.2;   // arcmin — minimum fiber separation (Matt's estimate 9-7-26; adjust when confirmed)
+const FIBER_MIN_SEP = 1.2;   // arcmin — minimum fiber separation (confirmed by Matt 9-8-26 as the working value)
 function drawNN() {
   const rec = els.nn;
   const cvs = rec.cvs;
@@ -205,7 +205,7 @@ function drawNN() {
   const hist = C.histogram(sep, nb, lo, hi);
   const maxC = Math.max(1, C.arrMax(hist.counts));
   const colW = plot.w / nb;
-  ctx.fillStyle = scales.dist.css(0.30);   // a blue from the distance colormap (the 3D default)
+  ctx.fillStyle = scales.dist.css(0.82);   // a blue from the distance colormap (its far end is the blue side)
   for (let b = 0; b < nb; b++) {
     const bh = hist.counts[b] / maxC * plot.h;
     ctx.fillRect(plot.x + b * colW + 0.3, plot.y + plot.h - bh, colW - 0.6, bh);
@@ -229,5 +229,10 @@ function drawNN() {
   ctx.restore();
   let close = 0;
   for (let i = 0; i < sep.length; i++) if (sep[i] < FIBER_MIN_SEP) close++;
-  label(ctx, `< ${FIBER_MIN_SEP}′ (${close})`, xc + 5, plot.y + 10, { size: 8.5, color: UI.text });
+  const txt = `< ${FIBER_MIN_SEP}′ (${close})`;
+  ctx.font = '8.5px "SF Mono", ui-monospace, Menlo, monospace';
+  const tw = ctx.measureText(txt).width;
+  ctx.fillStyle = 'rgba(25,24,22,0.85)';
+  ctx.beginPath(); ctx.roundRect(xc + 3, plot.y + 2, tw + 6, 12, 3); ctx.fill();
+  label(ctx, txt, xc + 6, plot.y + 11, { size: 8.5, color: UI.text });
 }

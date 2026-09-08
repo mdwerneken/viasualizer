@@ -92,7 +92,7 @@ function legendHtml() {
       const s = SOURCES.find(x => x.id === id);
       if (!s) continue;
       if (s.svy) L.push(lg(SVY_COL[s.svy], `Via ${SVY_SHORT[s.svy] ?? s.svy} pointings (1°)`));
-      else if (id === 'bish19') L.push(lg(UI.text, 'Bish+19 Na I / Ca II sightlines'));
+      else if (id === 'bish19') L.push(lg(UI.text, 'Bish+19 BHB sightlines'));
       else L.push(lg(s.color, `${s.title} (field list)`));
     }
   }

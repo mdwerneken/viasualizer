@@ -17,7 +17,7 @@ export const GROUPS = { via: 'Planned Via fields', top: 'Promising cold-gas fiel
 export const CUSTOM_COL = '#ffffff';
 export const TOP_COL = '#d8a35a';
 // literature field lists offered by the custom "add a list" dropdown (Bish+19 by default)
-export const EXTRA_LISTS = [{ id: 'bish19', title: 'Bish+19 sightlines', short: 'Bish+19', color: CUSTOM_COL }];
+export const EXTRA_LISTS = [{ id: 'bish19', title: 'Bish+19 BHBs (Na I / Ca II sightlines)', short: 'Bish+19 BHBs', color: CUSTOM_COL }];
 
 function viaItems(svy) {
   const V = D.VIA, out = [];
