@@ -1,7 +1,9 @@
 // All-sky Mollweide (Galactic) — gas/dust background (offscreen-cached), star scatter,
-// object markers, Via planned pointings, HVC clouds, literature sightlines, survey-cone
-// circles (dblclick to open that field), selected-object highlighting, LMC/SMC disks,
-// a draggable field circle, and full-screen enlarge (with structure hover when enlarged).
+// object markers, Via planned pointings + other field lists, HVC clouds, literature
+// sightlines, survey-cone circles (dblclick to open that field), selected-object
+// highlighting, a draggable field circle, and full-screen enlarge: structure hover, scroll
+// wheel zoom about the cursor (right-drag or ⇧-drag pans the zoomed view), the field view
+// docked top-left, Map layers bottom-left and the legend under the colorbar bottom-right.
 import { D, bgGridFor } from '../data.js';
 import { state, setField, on } from '../state.js';
 import { F } from '../fieldmodel.js';
@@ -12,13 +14,16 @@ import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
 import { cloudColor } from './finder.js';
 import { LIST, sourceById } from '../lists.js';
+import { addLegendTarget, removeLegendTarget } from './skylayers.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};
 let hiStretchSky = {};
 let map = { w: 0, h: 0, sx: 1, sy: 1, cx: 0, cy: 0 };
-let dragging = false;
+let dragging = false, panning = null;
 let hoverObj = null;
+let zoom = 1, zx = 0, zy = 0;          // full-screen view zoom (about the cursor) + pan offset [css px]
+let fsLegend = null;
 
 const MX = 2 * C.SQ2 * 1.02, MY = C.SQ2 * 1.05;
 
@@ -28,22 +33,52 @@ export function initAllsky(container) {
   cv.className = 'allsky-canvas';
   container.appendChild(cv);
   tipEl = document.getElementById('tooltip2d');
-  const reset = () => { bgCache = {}; starCache = null; hoverObj = null; draw(); };
-  expander = makeExpandable(container, { onToggle: reset, hint: 'click or drag to move the field · hover structures and pointings · double-click a survey circle or Via pointing to open it · Esc closes' });
+  const reset = (open) => {
+    bgCache = {}; starCache = null; hoverObj = null; zoom = 1; zx = zy = 0;
+    if (open !== undefined) dockPanels(open);
+    draw();
+  };
+  expander = makeExpandable(container, { onToggle: reset, hint: 'click or drag to move the field · scroll to zoom, right-drag / ⇧-drag to pan · hover structures and pointings · double-click a survey circle or Via pointing to open it · Esc closes' });
   on('fieldmodel', draw);
   on('theme', () => { bgCache = {}; starCache = null; hiStretchSky = {}; draw(); });
   new ResizeObserver(() => { bgCache = {}; starCache = null; draw(); }).observe(container);
   cv.addEventListener('pointerdown', (e) => {
+    if ((e.button === 2 || (e.button === 0 && e.shiftKey)) && zoom > 1) {
+      panning = { x: e.clientX, y: e.clientY, zx, zy };
+      try { cv.setPointerCapture(e.pointerId); } catch {}
+      return;
+    }
     if (e.button !== 0) return;
     dragging = true;
     try { cv.setPointerCapture(e.pointerId); } catch {}
     moveTo(e, true);
   });
+  cv.addEventListener('contextmenu', e => { if (zoom > 1) e.preventDefault(); });
   cv.addEventListener('pointermove', (e) => {
+    if (panning) { zx = panning.zx + (e.clientX - panning.x); zy = panning.zy + (e.clientY - panning.y); starCache = null; draw(); return; }
     if (dragging) { moveTo(e, true); return; }
     if (expander.isExpanded()) hoverStructure(e);
   });
-  cv.addEventListener('pointerup', (e) => { if (dragging) { dragging = false; moveTo(e, false); } });
+  cv.addEventListener('pointerup', (e) => {
+    if (panning) { panning = null; return; }
+    if (dragging) { dragging = false; moveTo(e, false); }
+  });
+  // full-screen: scroll wheel zooms about the cursor (1× … 12×)
+  cv.addEventListener('wheel', (e) => {
+    if (!expander.isExpanded()) return;
+    e.preventDefault();
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const z1 = Math.min(12, Math.max(1, zoom * Math.exp(-e.deltaY * 0.0025)));
+    if (z1 === zoom) return;
+    const mx = (x - map.cx - zx) / (map.sx * zoom), my = -(y - map.cy - zy) / (map.sy * zoom);
+    zoom = z1;
+    if (zoom <= 1.001) { zoom = 1; zx = 0; zy = 0; }
+    else { zx = x - map.cx - mx * map.sx * zoom; zy = y - map.cy + my * map.sy * zoom; }
+    starCache = null;
+    tipEl.style.display = 'none';
+    draw();
+  }, { passive: false });
   cv.addEventListener('pointerleave', () => {
     if (hoverObj) { hoverObj = null; draw(); }
     tipEl.style.display = 'none';
@@ -75,8 +110,27 @@ export function initAllsky(container) {
   });
 }
 
-function toPx(mx, my) { return [map.cx + mx * map.sx, map.cy - my * map.sy]; }
-function fromPx(x, y) { return [(x - map.cx) / map.sx, -(y - map.cy) / map.sy]; }
+function toPx(mx, my) { return [map.cx + mx * map.sx * zoom + zx, map.cy - my * map.sy * zoom + zy]; }
+function fromPx(x, y) { return [(x - map.cx - zx) / (map.sx * zoom), -(y - map.cy - zy) / (map.sy * zoom)]; }
+
+// full-screen: dock the field view (top-left), Map layers (bottom-left) and a legend box
+// (bottom-right) inside the enlarged panel; put them back on close
+function dockPanels(open) {
+  const finder = document.getElementById('finder-wrap');
+  const layers = document.getElementById('layers-wrap');
+  if (open) {
+    wrap.append(finder, layers);
+    fsLegend = document.createElement('div');
+    fsLegend.className = 'legend fs';
+    wrap.appendChild(fsLegend);
+    addLegendTarget(fsLegend);
+  } else {
+    const pf = document.getElementById('p-finder');
+    pf.insertBefore(finder, document.getElementById('fov-box'));
+    document.getElementById('p-layers').appendChild(layers);
+    if (fsLegend) { removeLegendTarget(fsLegend); fsLegend.remove(); fsLegend = null; }
+  }
+}
 function eventLB(e) {
   const r = cv.getBoundingClientRect();
   const [mx, my] = fromPx(e.clientX - r.left, e.clientY - r.top);
@@ -97,8 +151,12 @@ function bgGrids() {
 }
 
 function buildBg(w, h) {
-  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST + '|' + !!D.DUST3D;
+  const key = state.himap + '|' + w + '|' + h + '|' + UI.themeName + '|' + !!D.DUST + '|' + !!D.DUST3D + '|' + !!expander?.isExpanded();
   if (bgCache[key]) return bgCache[key];
+  const saved = [zoom, zx, zy]; zoom = 1; zx = zy = 0;      // build unzoomed; draw() scales it
+  try { return buildBgUnzoomed(key, w, h); } finally { [zoom, zx, zy] = saved; }
+}
+function buildBgUnzoomed(key, w, h) {
   const off = document.createElement('canvas');
   const dpr = Math.min(devicePixelRatio || 1, 2);
   off.width = w * dpr; off.height = h * dpr;
@@ -134,20 +192,6 @@ function buildBg(w, h) {
     }
   }
   ctx.putImageData(img, 0, 0);
-  // celestial equator (grey dots) + longitude labels
-  ctx.fillStyle = UI.textDim;
-  ctx.globalAlpha = 0.6;
-  for (let i = 0; i < D.s_eq_l.length; i++) {
-    const [mx, my] = C.mollXY(D.s_eq_l[i], D.s_eq_b[i]);
-    const [X, Y] = toPx(mx, my);
-    ctx.fillRect(X, Y, 1.2, 1.2);
-  }
-  ctx.globalAlpha = 1;
-  for (let lv = -150; lv <= 150; lv += 30) {
-    const [mx, my] = C.mollXY(lv, 0);
-    const [X, Y] = toPx(mx, my);
-    label(ctx, String(lv), X, Y - 3, { size: 8, color: UI.textDim, align: 'center' });
-  }
   bgCache[key] = off;
   return off;
 }
@@ -155,7 +199,7 @@ function buildBg(w, h) {
 let starCache = null, starCacheKey = '';
 function buildStarLayer(w, h) {
   const gl = expander?.isExpanded() ? 1.9 : 1;   // GC / dwarf glyph scale when enlarged
-  const key = [w, h, state.via, state.streamsOn, state.hlStream && state.streamSel,
+  const key = [w, h, zoom, zx, zy, state.via, state.streamsOn, state.hlStream && state.streamSel,
     state.memOn, state.mem2On, state.gcOn, state.dgOn, state.viaDwarfs,
     state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel, state.himap, UI.themeName, !!D.MEM2, !!D.DUST].join('|');
   if (starCache && starCacheKey === key) return starCache;
@@ -165,7 +209,21 @@ function buildStarLayer(w, h) {
   off.width = w * dpr; off.height = h * dpr;
   const ctx = off.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.drawImage(buildBg(w, h), 0, 0, w, h);
+  // celestial equator (grey dots) + longitude labels (zoom-aware, so they stay crisp)
+  ctx.fillStyle = UI.textDim;
+  ctx.globalAlpha = 0.6;
+  for (let i = 0; i < D.s_eq_l.length; i++) {
+    const [mx, my] = C.mollXY(D.s_eq_l[i], D.s_eq_b[i]);
+    const [X, Y] = toPx(mx, my);
+    ctx.fillRect(X, Y, 1.2, 1.2);
+  }
+  ctx.globalAlpha = 1;
+  const big = expander?.isExpanded();
+  for (let lv = -150; lv <= 150; lv += 30) {
+    const [mx, my] = C.mollXY(lv, 0);
+    const [X, Y] = toPx(mx, my);
+    label(ctx, String(lv), X, Y - 3, { size: big ? 12 : 8, color: UI.textDim, align: 'center' });
+  }
   const light = UI.themeName === 'light';
   const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
   if (state.streamsOn) {
@@ -233,6 +291,8 @@ function draw() {
   map.sx = s; map.sy = s;
   ctx.fillStyle = UI.bg;
   ctx.fillRect(0, 0, w, h);
+  // background (cached unzoomed, scaled about the map centre) then the zoom-aware star layer
+  ctx.drawImage(buildBg(w, h), map.cx - map.cx * zoom + zx, map.cy - map.cy * zoom + zy, w * zoom, h * zoom);
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
 
   // HVC clouds (outline at catalog size; optional velocity color)
@@ -295,25 +355,36 @@ function draw() {
     label(ctx, cone.name, CX, CY - cone.r * map.sy * 0.045 - 4, { align: 'center', size: 8, color: cone.color });
   }
   drawHoverStructure(ctx);
-  drawSkyCircle(ctx, F.l0, F.b0, Math.max(state.fov / 2, 1.2), UI.accent, 1.8);
-  drawHiBar(ctx, h);
+  drawSkyCircle(ctx, F.l0, F.b0, Math.max(state.fov / 2, 1.2 / zoom), UI.accent, 1.8);
+  drawHiBar(ctx, w, h);
+  if (zoom > 1) label(ctx, `${zoom.toFixed(1)}×`, w - 10, 16, { align: 'right', size: 11, color: UI.textDim });
   cv.style.cursor = 'crosshair';
 }
 
-function drawHiBar(ctx, h) {
-  const st = hiStretchSky[state.himap];
-  if (!st) return;
+// colorbar: small view bottom-left (2 numbers); full screen bottom-right, larger, 5 ticks
+export function drawColorbarH(ctx, st, x, y, lw, lh, fs, nTicks) {
   const scale = bgScale();
-  const big = expander.isExpanded();
-  const lw = big ? 130 : 56, lh = big ? 13 : 7, fs = big ? 11 : 8;
-  const lx = 6, ly = h - lh - (big ? 26 : 20);
   for (let k = 0; k < lw; k++) {
     ctx.fillStyle = scale.css(k / (lw - 1));
-    ctx.fillRect(lx + k, ly, 1.2, lh);
+    ctx.fillRect(x + k, y, 1.2, lh);
   }
-  label(ctx, bgLabel(), lx, ly - 4, { size: fs, color: UI.textDim });
-  label(ctx, st.v0.toFixed(1), lx, ly + lh + fs + 2, { size: fs, color: UI.textDim });
-  label(ctx, st.v1.toFixed(1), lx + lw, ly + lh + fs + 2, { align: 'right', size: fs, color: UI.textDim });
+  label(ctx, bgLabel(), x, y - 4, { size: fs, color: UI.textDim });
+  for (let t = 0; t < nTicks; t++) {
+    const f = t / (nTicks - 1);
+    const v = st.v0 + f * (st.v1 - st.v0);
+    label(ctx, v.toFixed(nTicks > 2 ? 1 : 1), x + f * lw, y + lh + fs + 2, { align: t === 0 ? 'left' : t === nTicks - 1 ? 'right' : 'center', size: fs, color: UI.textDim });
+    if (t > 0 && t < nTicks - 1) { ctx.fillStyle = UI.textDim; ctx.fillRect(x + f * lw, y + lh, 1, 3); }
+  }
+}
+function drawHiBar(ctx, w, h) {
+  const st = hiStretchSky[state.himap];
+  if (!st) return;
+  if (expander.isExpanded()) {
+    ctx.fillStyle = 'rgba(22,21,20,0.82)';          // backing so the labels read over bright sky
+    ctx.beginPath(); ctx.roundRect(w - 320 - 34, h - 116, 348, 66, 8); ctx.fill();
+    drawColorbarH(ctx, st, w - 320 - 20, h - 92, 320, 16, 12, 5);
+  }
+  else drawColorbarH(ctx, st, 6, h - 7 - 20, 56, 7, 8, 2);
 }
 
 // ---- whole-structure hover (enlarged view only) --------------------------------------

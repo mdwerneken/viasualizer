@@ -341,7 +341,7 @@ function drawSources(ctx) {
       const [X, Y] = toPx(cx2[k], cy2[k]);
       const r = Math.max(5, cl.radDeg[i] * 60 * px.scale);
       circleOutline(ctx, X, Y, r, cloudColor(i), 1.4, [5, 4]);
-      hitList.push({ x: X, y: Y, r: Math.min(r, 30), pri: -1,
+      hitList.push({ x: X, y: Y, r, ring: 6, pri: -1,
         html: `<b>${cl.name[i]}</b> · ${cl.type[i]} · ${D.CLOUD_SRC[cl.src[i]]}<br>v_LSR ${cl.vlsr[i].toFixed(0)} · v_GSR ${cl.vgsr[i].toFixed(0)} km/s<br>size ~${(cl.radDeg[i] * 2).toFixed(1)}°`,
         lam: cl.lam[i], bet: cl.bet[i] });
     }
@@ -471,7 +471,8 @@ function findHit(e) {
   let best = null, bd = 1e9, bp = -9;
   for (const h of hitList) {
     const d = Math.hypot(h.x - x, h.y - y);
-    if (d > h.r) continue;
+    if (h.ring !== undefined) { if (Math.abs(d - h.r) > h.ring) continue; }   // outlines hit on the line itself
+    else if (d > h.r) continue;
     const pri = h.pri ?? 0;
     if (pri > bp || (pri === bp && d < bd)) { best = h; bd = d; bp = pri; }
   }

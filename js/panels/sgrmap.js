@@ -11,7 +11,7 @@ import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
 import { cloudColor } from './finder.js';
 import { LIST, sourceById } from '../lists.js';
-import { viaHtml } from './allsky.js';
+import { viaHtml, drawColorbarH } from './allsky.js';
 
 let cv, wrap, tipEl, expander;
 let bgCache = {};
@@ -186,8 +186,8 @@ function draw() {
   let h = Math.round(w * ASPECT);
   if (h > availH) { h = availH; w = Math.round(h / ASPECT); }
   const ctx = fitCanvas(cv, w, h);
-  map.w = w - map.x0 - 40;
-  map.h = h - map.y0 - 20;
+  map.w = w - map.x0 - (big ? 12 : 40);
+  map.h = h - map.y0 - (big ? 70 : 20);
   ctx.drawImage(buildStarLayer(w, h), 0, 0, w, h);
   drawHiBarV(ctx, w, h);
 
@@ -250,9 +250,14 @@ function draw() {
 function drawHiBarV(ctx, w, h) {
   const st = hiStretchSgr[state.himap];
   if (!st) return;
+  if (expander.isExpanded()) {   // horizontal under the strip, with room to breathe
+    const lw = Math.min(360, map.w - 20);
+    drawColorbarH(ctx, st, map.x0 + (map.w - lw) / 2, h - 44, lw, 14, 11, 5);
+    return;
+  }
   const scale = bgScale();
-  const bw = 9, bx = w - 24;
-  const by = map.y0 + 16, bh = map.h - 32;
+  const bw = 7, bx = w - 22;
+  const bh = Math.min(120, map.h - 32), by = map.y0 + 16;
   for (let k = 0; k < bh; k++) {
     ctx.fillStyle = scale.css(1 - k / (bh - 1));
     ctx.fillRect(bx, by + k, bw, 1.2);

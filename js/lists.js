@@ -51,8 +51,8 @@ function topItems(sec) {
   return D.CANDIDATES.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim && (c.sec ?? 'top') === sec)
     .map(c => ({
       lam: c.lam, bet: c.bet, l: c.l, b: c.b, fov: c.fov, ref: D.CANDIDATES.indexOf(c),
-      label: `#${c.rank} · ${c.combo}`, sub: `G ≤ ${best.glim}`,
-      meta: `${c.n_rungs} rungs (scan) · ${c.site} · log N(HI) ${c.log_nhi}`,
+      label: c.combo, sub: `G ≤ ${best.glim}`,
+      meta: `${c.n_rungs} rungs · log N(HI) ${c.log_nhi} · ${c.site}`,
       scan: { rungs: c.n_rungs, nhi: c.log_nhi },
     }));
 }
@@ -141,7 +141,7 @@ export function applySort() {
     if (sk === 'rungs') return s ? s.rungs + s.tie * 1e-3 : (it.scan?.rungs ?? -1);
     if (sk === 'targets') return s ? s.targets : -1;
     if (sk === 'qso') return s ? s.qso : -1;
-    if (sk === 'nhi') return s ? -s.nhi : (it.scan ? -it.scan.nhi : -99);
+    if (sk === 'nhi') return s ? s.nhi : (it.scan ? it.scan.nhi : -99);   // high → low (Matt 9-7-26)
     if (sk === 'dec') return -Math.abs(decOf(it));
     return 0;
   };

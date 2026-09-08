@@ -14,10 +14,9 @@ const KC = () => ({ stream: '#e08585', GC: UI.gc, dwarf: UI.dwarf, halo: UI.halo
 
 export function initLadder(container) {
   wrap = container;
-  headEl = document.createElement('div');
-  headEl.className = 'ladder-head';
+  headEl = document.getElementById('ladder-title');
   cvs = document.createElement('canvas');
-  container.append(headEl, cvs);
+  container.append(cvs);
   on('fieldmodel', draw);
   on('theme', draw);
   new ResizeObserver(draw).observe(container);
@@ -49,9 +48,9 @@ function draw() {
     return md >= 100 ? md.toFixed(0) : md.toFixed(1);
   });
   const distTxt = [...dists.map(d => `${d} kpc`), ...(L.qsoRung ? ['∞'] : [])].join(' • ');
-  headEl.innerHTML =
-    `<span class="rung-count">${L.nRungs}</span> distance rung${L.nRungs === 1 ? '' : 's'}` +
-    `<span class="rung-sub">${distTxt ? ' • ' + distTxt : ''}</span>`;
+  if (headEl) headEl.innerHTML = `<span class="tcount">${L.nRungs}</span> distance rung${L.nRungs === 1 ? '' : 's'}`;
+  const sub = document.getElementById('ladder-dists');
+  if (sub) sub.textContent = distTxt;
 
   const w = wrap.clientWidth;
   if (!w) return;
@@ -70,8 +69,8 @@ function draw() {
     (Math.log10(dMax) - Math.log10(dMin)) * (x1 - x0 - 46));
 
   const meas = cvs.getContext('2d');
-  meas.font = '8.5px "SF Mono", ui-monospace, Menlo, monospace';
-  const XRIGHT = w - 58;
+  meas.font = '10px "SF Mono", ui-monospace, Menlo, monospace';
+  const XRIGHT = w - 62;
   const lbl = r => (r.kind === 'GC') ? r.label : `${r.label} (${r.n}★)`;
   const layouts = L.groups.map(grp => {
     const items = grp.map(r => ({ r, X: lx(r.dist) })).sort((a, b) => a.X - b.X);
@@ -85,8 +84,8 @@ function draw() {
     let nLines = 1;
     for (const { it, txt } of labItems) {
       const tw = meas.measureText(txt).width;
-      let tx = it.X + 9;
-      if (tx + tw > XRIGHT) tx = it.X - 9 - tw;
+      let tx = it.X + 11;
+      if (tx + tw > XRIGHT) tx = it.X - 11 - tw;
       tx = Math.max(2, Math.min(tx, w - tw - 2));
       let line = 0, placed = false;
       for (; line < 3; line++) {
@@ -103,7 +102,7 @@ function draw() {
     }
     return { items, lines, nLines };
   });
-  const rowH = 21, lineH = 11;
+  const rowH = 26, lineH = 13;
   let hTot = 22;
   for (const lay of layouts) hTot += rowH + (lay.nLines - 1) * lineH;
   if (L.qsoRung) hTot += rowH;
@@ -112,7 +111,7 @@ function draw() {
   ctx.clearRect(0, 0, w, h);
   iconHits = [];
   const kc = KC();
-  ctx.fillStyle = UI.panelBorder;
+  ctx.fillStyle = UI.axis;
   ctx.fillRect(x0, h - 14, x1 - x0, 1);
   for (const t of [2, 5, 10, 20, 50, 100]) {
     label(ctx, String(t), lx(t), h - 3, { align: 'center', size: 8, color: UI.textDim });
@@ -132,22 +131,22 @@ function draw() {
     ctx.stroke();
     for (const it of lay.items) {
       const { r, X } = it;
-      if (r.kind === 'GC') hexagram(ctx, X, y, 6, kc.GC, '#000a');
+      if (r.kind === 'GC') hexagram(ctx, X, y, 8, kc.GC, '#000a');
       else if (r.kind === 'dwarf') {
         const c = D.DWF.name.includes(r.label) ? dwarfColorByName(r.label) : streamColorByName(r.label);
-        diamond(ctx, X, y, 5.5, c, '#000a');
-      } else if (r.kind === 'halo' || r.kind === 'kg' || r.kind === 'bhb') dot(ctx, X, y, 4.5, kc[r.kind], 0.95);
-      else dot(ctx, X, y, 4.5, streamColorByName(r.label), 0.95);
-      iconHits.push({ x: X, y, r: 8, rung: r });
+        diamond(ctx, X, y, 7.5, c, '#000a');
+      } else if (r.kind === 'halo' || r.kind === 'kg' || r.kind === 'bhb') dot(ctx, X, y, 6.5, kc[r.kind], 0.95);
+      else dot(ctx, X, y, 6.5, streamColorByName(r.label), 0.95);
+      iconHits.push({ x: X, y, r: 11, rung: r });
     }
     for (const ln of lay.lines) {
-      label(ctx, ln.txt, ln.tx, y + 3 + ln.line * lineH, { size: 8.5, color: UI.textDim });
+      label(ctx, ln.txt, ln.tx, y + 3.5 + ln.line * lineH, { size: 10, color: UI.textDim });
     }
     y += rowH + (lay.nLines - 1) * lineH;
   }
   if (L.qsoRung) {
-    dot(ctx, x1 - 20, y, 4.5, kc.qso, 0.95);
-    label(ctx, `${L.nQso} quasars`, x1 - 30, y + 3, { align: 'right', size: 8.5, color: UI.textDim });
-    iconHits.push({ x: x1 - 20, y, r: 8, rung: { kind: 'qso' } });
+    dot(ctx, x1 - 20, y, 6.5, kc.qso, 0.95);
+    label(ctx, `${L.nQso} quasars`, x1 - 32, y + 3.5, { align: 'right', size: 10, color: UI.textDim });
+    iconHits.push({ x: x1 - 20, y, r: 11, rung: { kind: 'qso' } });
   }
 }

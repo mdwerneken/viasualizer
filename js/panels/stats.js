@@ -35,7 +35,7 @@ function render() {
   const L = [];
   // the count lives in the panel header ("24 TARGETS in this field")
   const tt = document.getElementById('targets-title');
-  if (tt) tt.innerHTML = `${red(F.fibers.targets)} targets <span class="in-field">in this field</span>`;
+  if (tt) tt.innerHTML = `${red(F.fibers.targets)} targets`;
   if (F.idx.length) {
     const parts = F.comp.slice(0, 6).map(([nm, c]) =>
       `${nm}${D.VIA_SET.has(nm) ? '<span class="tiny"> (Via)</span>' : ''} (<span class="tcount" data-hl-stream="${nm}">${c}★</span>)`);
@@ -84,10 +84,7 @@ function render() {
   if (F.e3d) gas.push(`ZGR23 E <b>${(10 ** F.e3d.mean).toFixed(3)}</b> within ${{ e300: '300 pc', e600: '600 pc', e1250: '1.25 kpc' }[state.himap]} (Edenhofer+24; A<sub>V</sub> ≈ 2.8 E)`);
   if (state.cloudsOn && F.cloudsInField) {
     if (F.cloudsInField.length) {
-      const names = F.cloudsInField.slice(0, 3).map(i =>
-        `${D.CLOUDS.name[i]} (v<sub>LSR</sub> ${D.CLOUDS.vlsr[i].toFixed(0)})`);
-      gas.push(`<b>${F.cloudsInField.length} HVC ${plural(F.cloudsInField.length, 'cloud')}</b> overlapping: ` +
-        names.join(', ') + (F.cloudsInField.length > 3 ? ', …' : ''));
+      gas.push(`<b>${F.cloudsInField.length} HVC ${plural(F.cloudsInField.length, 'cloud')}</b> overlapping — hover the outline in the field view`);
     } else gas.push(`no cataloged HVC clouds overlap the field`);
   }
   if (gas.length) L.push(`<div class="gasline">${gas.join('<br>')}</div>`);

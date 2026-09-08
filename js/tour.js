@@ -9,9 +9,9 @@ const STEPS = [
     text: 'This is a tool for exploring Via fields in the halo. You can change which objects are shown, find and save interesting fields, and learn about the 3D distribution of known (or best-estimate) halo sources.' },
   { sel: '#scene', title: '3D view (interactive)', cam: 'sun',
     text: 'Red arrow shows the field direction, and can be dragged. Click and drag anywhere to rotate, right-click to pan, scroll to zoom. Click an object to pin its label, and double-click to point at it.' },
-  { sel: '#p-finder', title: 'Field view (interactive)', tab: 'field',
+  { sel: ['#p-finder', '[data-tab="field"]'], title: 'Field view (interactive)', tab: 'field',
     text: 'Projected field (default 1°), showing stars and quasars on a background map (default HI). Drag to pan, hover objects for info, double-click to center, or expand to full screen.' },
-  { sel: '[data-tab="sky"]', title: 'Sky maps', tab: 'sky',
+  { sel: ['#p-allsky', '[data-tab="sky"]'], title: 'Sky maps', tab: 'sky',
     text: 'The all-sky view in Galactic and Sagittarius-Stream coordinates. Click anywhere to point there.' },
   { sel: '#sidebar', title: 'Controls', open: true, tab: 'field',
     text: 'Select objects based on brightness, type, catalog, and more. Change and save fields. Press ☰ to collapse.' },
@@ -45,6 +45,7 @@ export function initTour(h = {}) {
 export function startTour() {
   idx = 0;
   hooks.reset?.();
+  document.body.classList.add('tour-on');       // hides the ⤢ enlarge buttons while the tour runs
   root.hidden = false;
   show(0, { flyIn: true });
 }
@@ -57,6 +58,7 @@ function anchorRect() {
 
 function end() {
   setCam(false);
+  document.body.classList.remove('tour-on');
   try { localStorage.setItem(LS_TOUR, '1'); } catch {}
   const a = anchorRect();
   const lit = hooks.anchor?.();
@@ -140,17 +142,21 @@ function setShades(x0, y0, x1, y1) {
 
 function place() {
   const s = STEPS[idx];
-  const target = s.sel ? document.querySelector(s.sel) : null;
+  // one selector or several: the spotlight is the union of their rectangles (e.g. a panel
+  // plus the tab button that owns it)
+  const sels = s.sel ? (Array.isArray(s.sel) ? s.sel : [s.sel]) : [];
+  const rects = sels.map(q => document.querySelector(q)).filter(t => t && !t.hidden && t.getClientRects().length).map(t => t.getBoundingClientRect());
   const vw = window.innerWidth, vh = window.innerHeight;
   const cw = 480, ch = card.offsetHeight || 250;
-  if (!target || target.hidden || target.getClientRects().length === 0) {
+  if (!rects.length) {
     setShades(vw / 2, vh / 2, vw / 2, vh / 2);
     spot.style.left = `${vw / 2}px`; spot.style.top = `${vh / 2}px`; spot.style.width = '0px'; spot.style.height = '0px';
     spot.style.borderColor = 'transparent'; spot.style.boxShadow = 'none';
     card.style.left = `${(vw - cw) / 2}px`; card.style.top = `${(vh - ch) / 2}px`;
     return;
   }
-  const r = target.getBoundingClientRect();
+  const r = { left: Math.min(...rects.map(q => q.left)), top: Math.min(...rects.map(q => q.top)),
+    right: Math.max(...rects.map(q => q.right)), bottom: Math.max(...rects.map(q => q.bottom)) };
   const pad = 6;
   const x0 = r.left - pad, y0 = r.top - pad, x1 = r.right + pad, y1 = r.bottom + pad;
   setShades(x0, y0, x1, y1);

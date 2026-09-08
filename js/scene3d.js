@@ -450,7 +450,7 @@ function tracerCloud(cat, colorHex, size, alpha, kind) {
   geo.alphaAttr = alphaAttr;
   const pts = new THREE.Points(geo, makePointsMaterial());
   pts.frustumCulled = false;
-  pts.userData = { kind, colorHex };
+  pts.userData = { kind, colorHex, alpha };
   scene.add(pts);
   return pts;
 }
@@ -551,13 +551,23 @@ function restyleObjects() {
   if (tracerPts.bhb) tracerPts.bhb.visible = state.bhbOn;
   if (tracerPts.kep) tracerPts.kep.visible = state.kepOn;
   if (dustPts) dustPts.visible = state.dust3dOn;
+  // the magnitude limit hides individual stars in 3D too (members + tracers; GCs/dwarfs
+  // have no per-object G) — Matt 9-7-26
+  const magOk = g => !state.hide || !Number.isFinite(g) || (g >= state.glo && g <= state.ghi);
   const dwVis = state.viaDwarfs ? i => Number.isFinite(D.DWF.dist[i]) && D.DWF.dist[i] < 300 : null;
-  const memVis = state.viaDwarfs ? i => Number.isFinite(D.MEM.dist[i]) && D.MEM.dist[i] < 300 : null;
+  const memVis = i => magOk(D.MEM.G[i]) && (!state.viaDwarfs || (Number.isFinite(D.MEM.dist[i]) && D.MEM.dist[i] < 300));
   tintCat(gcPts, D.GCC, state.hlGC ? state.gcSel : null);
   tintCat(dwfPts, D.DWF, state.hlDwarf ? state.dwarfSel : null, null, dwVis);
   const dwName = (state.hlDwarf && state.dwarfSel !== null) ? D.DWF.name[state.dwarfSel] : null;
   tintCat(memPts, D.MEM, null, dwName, memVis);
-  if (mem2Pts) tintCat(mem2Pts, D.MEM2, null, dwName, state.viaDwarfs ? i => D.MEM2.dist[i] < 300 : null);
+  if (mem2Pts) tintCat(mem2Pts, D.MEM2, null, dwName, i => magOk(D.MEM2.G[i]) && (!state.viaDwarfs || D.MEM2.dist[i] < 300));
+  for (const [key, cat] of [['halo', D.HALO], ['kg', D.KG], ['bhb', D.BHB], ['kep', D.KEP]]) {
+    const pts = tracerPts[key];
+    if (!pts || !cat) continue;
+    const al = pts.geometry.alphaAttr.array, base = pts.userData.alpha ?? 0.8;
+    for (let i = 0; i < cat.lam.length; i++) al[i] = magOk(cat.G[i]) ? base : 0;
+    pts.geometry.alphaAttr.needsUpdate = true;
+  }
 }
 
 // Via pointing directions on a 15 kpc shell (ring sprites, survey colors)
@@ -586,7 +596,7 @@ function buildViaPoints() {
 }
 function updateVia() {
   if (!viaPts) return;
-  viaPts.visible = state.via3d && state.viaOn;
+  viaPts.visible = state.via3d;
   if (!viaPts.visible) return;
   const V = D.VIA, al = viaPts.geometry.alphaAttr.array;
   for (let i = 0; i < V.svy.length; i++) al[i] = state.viaSvy[V.svy[i]] ? 0.85 : 0;
@@ -596,7 +606,7 @@ function updateVia() {
 // active non-Via field lists on the same 15 kpc shell (list colors; no hover)
 function updateListShell() {
   if (listPts) { scene.remove(listPts); listPts.geometry.dispose(); listPts = null; }
-  if (!state.via3d || !state.viaOn) return;
+  if (!state.via3d) return;
   const items = LIST.items.filter(it => !it.src.startsWith('via:'));
   if (!items.length) return;
   const n = items.length;

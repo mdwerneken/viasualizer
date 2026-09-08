@@ -20,11 +20,11 @@ import { initHists } from './panels/hists.js';
 import { initLadder } from './panels/ladder.js';
 import { initStats } from './panels/stats.js';
 import { initPlayer } from './panels/player.js';
-import { initLists, SOURCES, LIST, GROUPS, EXTRA_LISTS, rebuild, gotoIndex, stepList, setPlaying, isPlaying, currentItem } from './lists.js';
-import { initTour, startTour, tourDone } from './tour.js';
+import { initLists, SOURCES, LIST, GROUPS, EXTRA_LISTS, rebuild, gotoIndex, stepList, currentItem } from './lists.js';
+import { initTour, startTour } from './tour.js';
 
 const $ = id => document.getElementById(id);
-const FOV_SNAPS = [1, 2, 3, 5];
+const FOV_SNAPS = [1, 2, 3, 4, 5];
 const DEFAULT_FIELD = { lam: -150.147, bet: 10.389 };   // GD-1 × Sagittarius overlap (Matt 8-20-26)
 const LS_EXTRA = 'viasual3_extra_lists';
 
@@ -154,50 +154,57 @@ function fovSnapDots() {
 }
 
 const fmtN = n => (n ?? 0).toLocaleString();
+// Input catalogs, grouped by what they are used for. lab = one line after the count;
+// note = an optional second line (only when it adds something)
 const CAT_SOURCES = [
-  { src: 'BONACA & PW 24', url: 'https://ui.adsabs.harvard.edu/abs/2025NewAR.10001713B/abstract',
-    num: () => fmtN(D.N), lab: () => `stream stars · ${D.STREAM_NAMES.length} streams (identical to Via's bonaca25 table)` },
-  { src: 'BAUMGARDT+21', url: 'https://ui.adsabs.harvard.edu/abs/2021MNRAS.505.5957B/abstract',
+  { sec: 'Backlights', src: 'BONACA & PW 24', url: 'https://ui.adsabs.harvard.edu/abs/2025NewAR.10001713B/abstract',
+    num: () => fmtN(D.N), lab: () => 'stream stars', note: () => `${D.STREAM_NAMES.length} streams` },
+  { sec: 'Backlights', src: 'BAUMGARDT+21', url: 'https://ui.adsabs.harvard.edu/abs/2021MNRAS.505.5957B/abstract',
     num: () => `${D.GCC.lam.length}`, lab: () => 'globular clusters' },
-  { src: 'MCCONNACHIE+12 · PACE LVDB', url: 'https://ui.adsabs.harvard.edu/abs/2012AJ....144....4M/abstract',
+  { sec: 'Backlights', src: 'MCCONNACHIE+12 · PACE LVDB', url: 'https://ui.adsabs.harvard.edu/abs/2012AJ....144....4M/abstract',
     url2: 'https://github.com/apace7/local_volume_database',
-    num: () => `${D.DWF.lam.length}`, lab: () => `dwarf galaxies (${D.DWF.src.filter(s => s.startsWith('LVDB')).length} post-2012 from LVDB v1.0.6)` },
-  { src: 'BATTAGLIA+22', url: 'https://ui.adsabs.harvard.edu/abs/2022A%26A...657A..54B/abstract',
-    num: () => fmtN(D.MEM.lam.length), lab: () => `members across ${memCounts().size} dwarfs (Gaia G)` },
-  { src: 'GEHA+26', url: 'https://arxiv.org/abs/2602.10200',
-    num: () => D.MEM2 ? fmtN(D.MEM2.lam.length) : '…', lab: () => 'DEIMOS dwarf members (predicted G; Via DGS input)' },
-  { src: 'STOREY-FISHER+24', url: 'https://ui.adsabs.harvard.edu/abs/2024ApJ...964...69S/abstract',
-    num: () => D.QSO ? fmtN(D.QSO.lam.length) : '…', lab: () => 'Quaia quasars · G < 20.5' },
-  { src: 'CLEMENTINI+23', url: 'https://ui.adsabs.harvard.edu/abs/2023A%26A...674A..18C/abstract',
-    num: () => D.HALO ? fmtN(D.HALO.lam.length) : '…', lab: () => 'halo RR Lyrae · |Z| > 3 kpc' },
-  { src: 'CHANDRA (PRIV. COMM.)', url: 'https://github.com/via-project/viatarget/blob/main/src/viatarget/data/catalogs.toml',
-    num: () => D.KG ? fmtN(D.KG.lam.length) : '…', lab: () => 'distant K giants, 10–125 kpc (Via KG class)' },
-  { src: 'XUE+11', url: 'https://ui.adsabs.harvard.edu/abs/2011ApJ...738...79X/abstract',
-    num: () => D.BHB ? fmtN(D.BHB.lam.length) : '…', lab: () => 'SDSS BHB stars, 2–77 kpc' },
-  { src: 'KEPLER × GAIA DR3', url: 'https://github.com/via-project/viatarget/blob/main/src/viatarget/data/catalogs.toml',
-    num: () => D.KEP ? fmtN(D.KEP.lam.length) : '…', lab: () => 'Kepler-field stars, parallax distances (Via KRS input)' },
-  { src: 'VIA VISIT LISTS', url: 'https://via-project.org/#/survey',
-    num: () => D.VIA ? fmtN(D.VIA.svy.length) : '—', lab: () => 'planned 1° pointings (cgs · dgs · krs · rbs · sps + approx. transients)' },
-  { src: 'PUTMAN+02 · ADAMS+13 · MOSS+13', url: 'https://ui.adsabs.harvard.edu/abs/2002AJ....123..873P/abstract',
-    url2: 'https://ui.adsabs.harvard.edu/abs/2013ApJS..209...12M/abstract',
-    num: () => D.CLOUDS ? fmtN(D.CLOUDS.name.length) : '—', lab: () => 'HVC clouds (HIPASS + UCHVC + GASS)' },
-  { src: 'HI4PI · WESTMEIER 18 · SFD98', url: 'https://ui.adsabs.harvard.edu/abs/2016A%26A...594A.116H/abstract',
+    num: () => `${D.DWF.lam.length}`, lab: () => 'dwarf galaxies', note: () => `${D.DWF.src.filter(s => s.startsWith('LVDB')).length} post-2012 from LVDB v1.0.6` },
+  { sec: 'Backlights', src: 'BATTAGLIA+22', url: 'https://ui.adsabs.harvard.edu/abs/2022A%26A...657A..54B/abstract',
+    num: () => fmtN(D.MEM.lam.length), lab: () => 'dwarf member stars', note: () => `${memCounts().size} dwarfs · Gaia G` },
+  { sec: 'Backlights', src: 'GEHA+26', url: 'https://arxiv.org/abs/2602.10200',
+    num: () => D.MEM2 ? fmtN(D.MEM2.lam.length) : '…', lab: () => 'DEIMOS dwarf members', note: () => 'predicted G · Via DGS input' },
+  { sec: 'Backlights', src: 'STOREY-FISHER+24', url: 'https://ui.adsabs.harvard.edu/abs/2024ApJ...964...69S/abstract',
+    num: () => D.QSO ? fmtN(D.QSO.lam.length) : '…', lab: () => 'Quaia quasars', note: () => 'G < 20.5' },
+  { sec: 'Backlights', src: 'CLEMENTINI+23', url: 'https://ui.adsabs.harvard.edu/abs/2023A%26A...674A..18C/abstract',
+    num: () => D.HALO ? fmtN(D.HALO.lam.length) : '…', lab: () => 'halo RR Lyrae', note: () => '|Z| > 3 kpc' },
+  { sec: 'Backlights', src: 'CHANDRA (PRIV. COMM.)', url: 'https://github.com/via-project/viatarget/blob/main/src/viatarget/data/catalogs.toml',
+    num: () => D.KG ? fmtN(D.KG.lam.length) : '…', lab: () => 'distant K giants', note: () => '10–125 kpc · Via KG class' },
+  { sec: 'Backlights', src: 'XUE+11', url: 'https://ui.adsabs.harvard.edu/abs/2011ApJ...738...79X/abstract',
+    num: () => D.BHB ? fmtN(D.BHB.lam.length) : '…', lab: () => 'SDSS BHB stars', note: () => '2–77 kpc' },
+  { sec: 'Backlights', src: 'KEPLER × GAIA DR3', url: 'https://github.com/via-project/viatarget/blob/main/src/viatarget/data/catalogs.toml',
+    num: () => D.KEP ? fmtN(D.KEP.lam.length) : '…', lab: () => 'Kepler-field stars', note: () => 'parallax distances · Via KRS input' },
+  { sec: 'Foregrounds', src: 'HI4PI · WESTMEIER 18 · SFD98', url: 'https://ui.adsabs.harvard.edu/abs/2016A%26A...594A.116H/abstract',
     url2: 'https://ui.adsabs.harvard.edu/abs/1998ApJ...500..525S/abstract',
     num: () => '', lab: () => 'all-sky HI, HVC and dust maps' },
-  { src: 'EDENHOFER+24', url: 'https://ui.adsabs.harvard.edu/abs/2024A%26A...685A..82E/abstract',
-    num: () => D.DUST3D ? fmtN(D.DUST3D.n) : '…', lab: () => '3D dust voxels < 1.25 kpc (top 2% densest) + integrated sky slices' },
-  { src: 'BISH+19', url: 'https://ui.adsabs.harvard.edu/abs/2019ApJ...882...76B/abstract',
-    num: () => D.SIGHT?.bish19 ? `${D.SIGHT.bish19.name.length}` : '—', lab: () => 'Keck/HIRES Na I + Ca II BHB sightlines' },
+  { sec: 'Foregrounds', src: 'EDENHOFER+24', url: 'https://ui.adsabs.harvard.edu/abs/2024A%26A...685A..82E/abstract',
+    num: () => '', lab: () => '3D dust sky slices', note: () => 'integrated to 300 / 600 / 1250 pc' },
+  { sec: 'Foregrounds', src: 'PUTMAN+02 · ADAMS+13 · MOSS+13', url: 'https://ui.adsabs.harvard.edu/abs/2002AJ....123..873P/abstract',
+    url2: 'https://ui.adsabs.harvard.edu/abs/2013ApJS..209...12M/abstract',
+    num: () => D.CLOUDS ? fmtN(D.CLOUDS.name.length) : '—', lab: () => 'HVC clouds', note: () => 'HIPASS + UCHVC + GASS' },
+  { sec: 'Survey fields', src: 'VIA VISIT LISTS', url: 'https://via-project.org/#/survey',
+    num: () => D.VIA ? fmtN(D.VIA.svy.length) : '—', lab: () => 'planned 1° pointings', note: () => 'cgs · dgs · krs · sps + random transients' },
+  { sec: 'Survey fields', src: 'BISH+19', url: 'https://ui.adsabs.harvard.edu/abs/2019ApJ...882...76B/abstract',
+    num: () => D.SIGHT?.bish19 ? `${D.SIGHT.bish19.name.length}` : '—', lab: () => 'Na I + Ca II BHB sightlines', note: () => 'Keck/HIRES' },
 ];
 function catalogsHtml() {
-  return CAT_SOURCES.map(c => {
+  let html = '', sec = null;
+  for (const c of CAT_SOURCES) {
+    if (c.sec !== sec) { sec = c.sec; html += `<div class="sec-lab cat-sec">${sec}</div>`; }
     const names = c.src.split(' · ');
     const links = c.url2
       ? `<a href="${c.url}" target="_blank" rel="noopener">${names.slice(0, -1).join(' · ')}</a> · <a href="${c.url2}" target="_blank" rel="noopener">${names[names.length - 1]}</a>`
       : `<a href="${c.url}" target="_blank" rel="noopener">${c.src}</a>`;
-    return `<div class="cat-entry"><div class="sec-lab cat-src">${links}</div>` +
-      `<div class="cat-num">${c.num() ? c.num() + ' ' : ''}<span class="tiny">${c.lab()}</span></div></div>`;
-  }).join('');
+    const note = c.note?.();
+    html += `<div class="cat-entry"><div class="sec-lab cat-src">${links}</div>` +
+      `<div class="cat-num">${c.num() ? c.num() + ' ' : ''}<span class="tiny">${c.lab()}</span></div>` +
+      (note ? `<div class="cat-note">${note}</div>` : '') + `</div>`;
+  }
+  return html;
 }
 
 // literature lists the user has added to "Custom" from the dropdown (remembered locally)
@@ -241,12 +248,15 @@ function buildSidebar() {
   };
   const dgOpts = [...withMem.map(dgOpt), ...noMem.map(dgOpt)];
   const streamHead = scales.dist.css((10 - D.DIST_MIN) / (D.DIST_MAX - D.DIST_MIN));
-  const hlBtn = (id, key) => `<button class="hl-btn ${state[key] ? 'on' : ''}" id="${id}" title="highlight the selected object (grey out the rest)">highlight</button>`;
+  const hlBtn = (id, key) => `<button class="hl-btn ${state[key] ? 'on' : ''}" id="${id}" title="focus on the selected object (grey out the rest)">focus selected</button>`;
   const chk = (id, key, label, sw, title = '') =>
     `<label title="${title}"><input type="checkbox" id="${id}" ${state[key] ? 'checked' : ''}> ${sw ? `<i class="sw ${sw}"></i>` : ''}${label}</label>`;
+  // catalog toggles as chips (color = the catalog's identity color)
+  const cchip = (key, label, color, title = '') =>
+    `<button class="chip-btn ${state[key] ? 'on' : ''}" data-key="${key}" style="--svy:${color}" title="${title}">${label}</button>`;
 
   $('fov-box').innerHTML = `
-    <div class="row"><label><span>Field of view <b id="fov-v">${state.fov.toFixed(1)}</b>°</span><span class="tiny" id="fov-note"></span></label>
+    <div class="row">
       <div class="fov-wrap">
         <input type="range" id="fov" min="1" max="5" step="0.1" value="${state.fov}">
         ${fovSnapDots()}
@@ -270,28 +280,42 @@ function buildSidebar() {
   </div>
 
   <details class="group" open>
-    <summary>Catalogs</summary>
-    <div class="row checks catalogs"><label class="tiny sec-lab">structures with distances</label>
-      ${chk('streams-chk', 'streamsOn', 'streams', 'str')}
-      ${chk('dg-chk', 'dgOn', 'dwarfs', 'dg')}
-      ${chk('gc-chk', 'gcOn', 'GCs', 'gc')}
+    <summary>Save fields
+      <span class="sum-btns">
+        <button id="hist-back" class="micro-btn" title="previous field (⌘Z)">◀</button>
+        <button id="hist-fwd" class="micro-btn" title="next field (⌘⇧Z)">▶</button>
+      </span>
+    </summary>
+    <div class="row">
+      <div class="save-row">
+        <button id="save-field" class="mini-btn">save current field</button>
+        <span class="save-col">
+          <button id="export-saved" class="micro-btn">copy list</button>
+          <button id="import-saved" class="micro-btn">paste list</button>
+        </span>
+      </div>
     </div>
-    <div class="row checks"><label class="tiny sec-lab">individual halo tracers (pair-rule rungs)</label>
-      ${chk('halo-chk', 'haloOn', 'halo RRL', 'halo', 'Gaia DR3 RR Lyrae, |Z|>3 kpc, ~10% distances')}
-      ${chk('kg-chk', 'kgOn', 'K giants', 'kg', 'Chandra distant K giants, isochrone distances 10-125 kpc')}
-      ${chk('bhb-chk', 'bhbOn', 'BHB', 'bhb', 'Xue+11 SDSS blue horizontal branch stars, 2-77 kpc')}
-      ${chk('kep-chk', 'kepOn', 'Kepler stars', 'kep', 'Gaia stars in the Kepler field, parallax distances (< 5 kpc)')}
+    <div id="saved-list"></div>
+  </details>
+
+  <details class="group" open>
+    <summary>Show catalogs</summary>
+    <div id="cat-chips">
+    <div class="row checks"><label class="tiny sec-lab">structures with distances</label></div>
+    <div class="svy-chips">${cchip('streamsOn', 'streams', '#c05252')}${cchip('dgOn', 'dwarfs', UI.dwarf)}${cchip('gcOn', 'GCs', UI.gc)}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">individual halo tracers</label></div>
+    <div class="svy-chips">
+      ${cchip('haloOn', 'halo RRL', UI.halo, 'Gaia DR3 RR Lyrae, |Z|>3 kpc, ~10% distances')}
+      ${cchip('kgOn', 'K giants', UI.kg, 'Chandra distant K giants, isochrone distances 10-125 kpc')}
+      ${cchip('bhbOn', 'BHB', UI.bhb, 'Xue+11 SDSS blue horizontal branch stars, 2-77 kpc')}
+      ${cchip('kepOn', 'Kepler stars', UI.kep, 'Gaia stars in the Kepler field, parallax distances (< 5 kpc)')}
     </div>
-    <div class="row checks"><label class="tiny sec-lab">backlights at infinity</label>
-      ${chk('qso-chk', 'qsoOn', 'quasars', 'qso')}
-    </div>
-    <div class="row checks"><label class="tiny sec-lab">stream / dwarf filters</label>
-      ${chk('via-chk', 'via', 'Via streams only', '')}
-      ${chk('via-dg-chk', 'viaDwarfs', 'dwarfs ≤ 300 kpc', '')}
-    </div>
-    <div class="row checks"><label class="tiny sec-lab">dwarf member stars</label>
-      ${chk('mem-chk', 'memOn', 'Battaglia+22 (Gaia G)', 'mem')}
-      ${chk('mem2-chk', 'mem2On', 'Geha+26 (predicted G)', 'mem2')}
+    <div class="row checks sub"><label class="tiny sec-lab">backlights at infinity</label></div>
+    <div class="svy-chips">${cchip('qsoOn', 'quasars', UI.accent2)}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">stream / dwarf filters</label></div>
+    <div class="svy-chips">${cchip('via', 'Via streams only', '#cfc8bb')}${cchip('viaDwarfs', 'dwarfs ≤ 300 kpc', '#cfc8bb')}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">dwarf member stars</label></div>
+    <div class="svy-chips">${cchip('memOn', 'Battaglia+22 (Gaia G)', UI.member)}${cchip('mem2On', 'Geha+26 (predicted G)', UI.member2)}</div>
     </div>
     <div class="row combo">
       <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">show disk <span class="tiny">(R 10 · z 1 kpc, 3D)</span></button>
@@ -326,7 +350,7 @@ function buildSidebar() {
       <button id="gc-go" class="mini-btn" title="go to this cluster">GO</button>
     </div>
     <div class="subdiv"></div>
-    <div class="subhead">Survey regions <span class="tiny">(cones in 3D · circles on the maps)</span></div>
+    <div class="subhead">Survey regions</div>
     ${D.CONES.map(c => `
     <div class="row combo cone-row">
       <button class="cone-btn" data-cone="${c.key}" style="--cone:${c.color}">${c.name} <span class="tiny">(${c.fov}°)</span></button>
@@ -334,26 +358,7 @@ function buildSidebar() {
     </div>`).join('')}
   </details>
 
-  <details class="group" open>
-    <summary>Save fields
-      <span class="sum-btns">
-        <button id="hist-back" class="micro-btn" title="previous field (⌘Z)">◀</button>
-        <button id="hist-fwd" class="micro-btn" title="next field (⌘⇧Z)">▶</button>
-      </span>
-    </summary>
-    <div class="row">
-      <div class="save-row">
-        <button id="save-field" class="mini-btn">save current field</button>
-        <span class="save-col">
-          <button id="export-saved" class="micro-btn">copy list</button>
-          <button id="import-saved" class="micro-btn">paste list</button>
-        </span>
-      </div>
-    </div>
-    <div id="saved-list"></div>
-  </details>
-
-  <details class="group">
+  <details class="group" id="lists-group" ${state.listsOpen ? 'open' : ''}>
     <summary>Field lists</summary>
     <div class="list-top">
       <button id="ovl-sky" class="cone-btn ${state.viaOn ? 'on' : ''}" style="--cone:#cfc8bb" title="draw the active lists' fields on the sky maps and the field view">Overlay on 2D maps</button>
@@ -366,10 +371,6 @@ function buildSidebar() {
     <div class="row checks sub"><label class="tiny sec-lab">${GROUPS.custom}</label></div>
     <div class="svy-chips" id="chips-custom">${chipsHtml('custom')}</div>
     <div class="list-add"><select id="add-list" class="nonesel">${addListOptions()}</select></div>
-    <div class="row sub"><label class="sec-lab" id="cand-lab">FIELD IN ACTIVE LIST</label>
-      <select id="cand-sel">${NONE_OPT}</select>
-    </div>
-    <div class="help">Toggle one or more lists to open the player under the 3D view. ← → step, space plays, sort by rungs / targets / HI. Via lists are the unique 1° pointings from the visit lists (Cold Gas subsurveys: PLANE 576 · HI_ABS 100 · HVC 100 · EXGAL 98 · SGR 30 · KEPLER 1); "Transients≈" is a seeded random approximation of where Rubin transients will appear.</div>
   </details>
 
   <details class="group">
@@ -388,7 +389,7 @@ function buildSidebar() {
 
 function wireSidebar() {
   const fovEl = $('fov');
-  const snapFov = v => { for (const s of FOV_SNAPS) if (Math.abs(v - s) < 0.15) return s; return v; };
+  const snapFov = v => Math.round(v * 10) / 10;   // plain 0.1° steps all the way (no magnet at the integers)
   // live (cheap) updates while dragging, the full recompute + hash on release
   fovEl.addEventListener('input', e => {
     const v = snapFov(parseFloat(e.target.value));
@@ -411,7 +412,6 @@ function wireSidebar() {
   const toggleList = (id, on) => {
     const srcs = state.listSrc.filter(s => s !== id);
     if (on) srcs.push(id);
-    setPlaying(false);
     set({ listSrc: srcs, listPos: -1 }, 'lists');
     rebuild();
   };
@@ -438,10 +438,13 @@ function wireSidebar() {
   });
   $('ovl-sky').addEventListener('click', e => { const v = !state.viaOn; e.currentTarget.classList.toggle('on', v); set({ viaOn: v }); });
   $('ovl-3d').addEventListener('click', e => { const v = !state.via3d; e.currentTarget.classList.toggle('on', v); set({ via3d: v }); });
-  $('cand-sel').addEventListener('change', e => {
-    syncNoneSel(e.target);
-    if (e.target.value === '') return;
-    gotoIndex(+e.target.value);
+  $('lists-group').addEventListener('toggle', e => set({ listsOpen: e.target.open }, 'layout'));
+  $('cat-chips').addEventListener('click', e => {
+    const b = e.target.closest?.('.chip-btn[data-key]');
+    if (!b) return;
+    const v = !state[b.dataset.key];
+    b.classList.toggle('on', v);
+    set({ [b.dataset.key]: v });
   });
 
   const dropLock = kind => { if (state.lock?.kind === kind) replaceLock(null); };
@@ -489,12 +492,6 @@ function wireSidebar() {
     });
   });
 
-  const simple = [
-    ['via-chk', 'via'], ['via-dg-chk', 'viaDwarfs'],
-    ['streams-chk', 'streamsOn'], ['qso-chk', 'qsoOn'], ['gc-chk', 'gcOn'], ['dg-chk', 'dgOn'], ['mem-chk', 'memOn'],
-    ['mem2-chk', 'mem2On'], ['halo-chk', 'haloOn'], ['kg-chk', 'kgOn'], ['bhb-chk', 'bhbOn'], ['kep-chk', 'kepOn'],
-  ];
-  for (const [id, key] of simple) $(id).addEventListener('change', e => set({ [key]: e.target.checked }));
   for (const [id, key] of [['hl-stream', 'hlStream'], ['hl-dwarf', 'hlDwarf'], ['hl-gc', 'hlGC']]) {
     $(id).addEventListener('click', e => { const v = !state[key]; e.currentTarget.classList.toggle('on', v); set({ [key]: v }); });
   }
@@ -572,14 +569,14 @@ function refreshChips() {
 let coverN = 0;   // white 1° circles the finder tiled over the sources (FOV > 1°)
 on('cover', n => { coverN = n; syncFov(); });
 function syncFov() {
-  const el = $('fov-v');
+  const el = $('fov-title');
   if (!el) return;
-  el.textContent = state.fov.toFixed(1);
+  el.textContent = `${state.fov.toFixed(1)}°`;
   const fovEl = $('fov');
   if (fovEl && Math.abs(parseFloat(fovEl.value) - state.fov) > 0.01) {
     fovEl.value = Math.min(5, Math.max(1, state.fov));
   }
-  $('fov-note').textContent = state.fov <= 1.001 ? 'one Via pointing'
+  $('fov-note').textContent = state.fov <= 1.001 ? '1 pointing'
     : `≈ ${Math.round(state.fov ** 2)} pointings${coverN ? ` (${coverN} shown)` : ''}`;
   for (const s of document.querySelectorAll('.fov-snap, .fov-dot')) {
     s.classList.toggle('active', Math.abs(parseFloat(s.dataset.fov) - state.fov) < 0.01);
@@ -621,7 +618,7 @@ function refreshCandidates() {
 
 export function fieldLabelHtml(f) {
   const fov = f.fov ? `${(+f.fov).toFixed(f.fov % 1 ? 1 : 0)}°` : '1°';
-  const mid = f.obj ? f.obj : `<i>ℓ</i> ${f.l.toFixed(1)}, <i>b</i> ${f.b.toFixed(1)}`;
+  const mid = f.label ? f.label : f.obj ? f.obj : `<i>ℓ</i> ${f.l.toFixed(1)}, <i>b</i> ${f.b.toFixed(1)}`;
   const g = f.ghi ? ` • G ≤ ${(+f.ghi).toFixed(f.ghi % 1 ? 1 : 0)}` : '';
   return `${fov} • ${mid}${g}`;
 }
@@ -632,7 +629,7 @@ function renderSaved() {
   box.innerHTML = '';
   const list = loadSaved();
   if (!list.length) {
-    box.innerHTML = `<span class="tiny">none yet — save the current field, or ☆ in the player</span>`;
+    box.innerHTML = `<span class="tiny">no fields saved yet</span>`;
     return;
   }
   list.forEach((f, i) => {
@@ -642,6 +639,16 @@ function renderSaved() {
     lbl.className = 'lbl';
     lbl.innerHTML = fieldLabelHtml(f);
     lbl.title = `Λ=${f.lam.toFixed(2)} B=${f.bet.toFixed(2)}${f.fov ? ` · ${f.fov}°` : ''}`;
+    const pen = document.createElement('span');
+    pen.className = 'pen';
+    pen.textContent = '✎';
+    pen.title = 'rename this field';
+    pen.addEventListener('click', e => {
+      e.stopPropagation();
+      const nm = window.prompt('name for this field:', f.label || f.obj || '');
+      if (nm === null) return;
+      const l2 = loadSaved(); l2[i].label = nm.trim(); storeSaved(l2); renderSaved();
+    });
     const del = document.createElement('span');
     del.className = 'del';
     del.textContent = '×';
@@ -649,7 +656,7 @@ function renderSaved() {
       e.stopPropagation();
       const l2 = loadSaved(); l2.splice(i, 1); storeSaved(l2); renderSaved();
     });
-    chip.append(lbl, del);
+    chip.append(lbl, pen, del);
     chip.addEventListener('click', () => {
       if (f.fov) { state.fov = f.fov; syncFov(); }
       slideField(f.lam, f.bet);
@@ -689,7 +696,6 @@ function wireKeys() {
     switch (e.key) {
       case 'ArrowLeft': if (state.listSrc.length) { e.preventDefault(); stepList(-1); } break;
       case 'ArrowRight': if (state.listSrc.length) { e.preventDefault(); stepList(1); } break;
-      case ' ': if (state.listSrc.length) { e.preventDefault(); setPlaying(!isPlaying()); } break;
       case 'c': case 'C': setSidebar(!state.sidebar); break;
       case '?': startTour(); break;
       case 's': case 'S': if (!e.shiftKey) { saveCurrentField(); renderSaved(); } break;
@@ -733,6 +739,7 @@ async function boot() {
     state.bet0 = DEFAULT_FIELD.bet;
     state.glo = D.GMIN;
     state.ghi = Math.min(20.0, D.GMAX);
+    const freshLoad = !location.hash || location.hash.length < 2;   // base link → run the tutorial
     initHash();                                   // may override from a shared link
     if (!['field', 'sky'].includes(state.tab)) state.tab = 'field';
     if (state.mode === 'dens') state.mode = 'dist';
@@ -750,11 +757,11 @@ async function boot() {
     initLadder($('ladder-wrap'));
     initStats($('stats-wrap'), $('bottom-bar'));
     initHists($('hists-wrap'));
-    initLayers($('layers-wrap'));
+    initLayers($('layers-wrap'), $('allsky-legend'));
     initAllsky($('allsky-wrap'));
     initSgrmap($('sgrmap-wrap'));
     initPlayer($('player'));
-    let tourOpenedList = false;
+    let tourOpenedList = false, tourOpenedGroup = false;
     initTour({
       anchor: () => $('help-btn'),
       openSidebar: () => setSidebar(true),
@@ -768,11 +775,15 @@ async function boot() {
         tourCamera('reset');
       },
       camera: mode => tourCamera(mode),
-      showPlayer: () => { if (!state.listSrc.length) { tourOpenedList = true; set({ listSrc: ['via:sps'] }, 'lists'); rebuild(); } },
+      showPlayer: () => {
+        if (!state.listsOpen) { tourOpenedGroup = true; $('lists-group').open = true; set({ listsOpen: true }, 'layout'); }
+        if (!state.listSrc.length) { tourOpenedList = true; set({ listSrc: ['via:sps'] }, 'lists'); rebuild(); }
+      },
       onEnd: () => {
         tourCamera('halo');
         showTab('field');
-        if (tourOpenedList) { tourOpenedList = false; setPlaying(false); set({ listSrc: [], listPos: -1 }, 'lists'); rebuild(); }
+        if (tourOpenedList) { tourOpenedList = false; set({ listSrc: [], listPos: -1 }, 'lists'); rebuild(); }
+        if (tourOpenedGroup) { tourOpenedGroup = false; $('lists-group').open = false; set({ listsOpen: false }, 'layout'); }
       },
     });
     for (const t of document.querySelectorAll('.tab-btn')) t.addEventListener('click', () => showTab(t.dataset.tab));
@@ -784,7 +795,7 @@ async function boot() {
     if (state.listSrc.length) rebuild();
     overlay.classList.add('done');
     setTimeout(() => overlay.remove(), 450);
-    if (!tourDone()) setTimeout(startTour, 600);
+    if (freshLoad) setTimeout(startTour, 600);
     // lazy heavy catalogs — each arrival recomputes the field + refreshes the counts
     const lazy = [
       ['quaia', () => loadQuaia(DATA_DIR)], ['halo RRL', () => loadHalo(DATA_DIR)],

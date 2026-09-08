@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VIAsualizer — Via halo sightline explorer</title>
 <link rel="icon" type="image/png" href="img/favicon.png">
-<link rel="stylesheet" href="css/style.css?v=3.3">
+<link rel="stylesheet" href="css/style.css?v=3.4">
 <script type="importmap">
   { "imports": { "three": "./js/vendor/three.module.min.js" } }
 </script>
@@ -45,21 +45,20 @@
     </nav>
     <div class="tab-page" data-tab="field">
       <div class="panel" id="p-finder">
-        <div class="panel-head"><span class="panel-title">Field view</span>
-          <span class="panel-cap">what the 1° fiber field sees — finder chart on the gas/dust background; drag to pan, double-click to recenter, ⤢ to enlarge</span></div>
+        <div class="panel-head row2"><span class="panel-title"><span class="tcount" id="fov-title">1.0°</span> field of view</span>
+          <span class="panel-cap" id="fov-note"></span></div>
         <div id="finder-wrap"></div>
-      </div>
-      <div class="panel" id="p-fov">
         <div id="fov-box"></div>
       </div>
       <div class="panel" id="p-stats">
-        <div class="panel-head"><span class="panel-title" id="targets-title">Targets</span>
+        <div class="panel-head row2"><span class="panel-title" id="targets-title">Targets</span>
           <span class="panel-cap">hover number to focus</span></div>
         <div id="stats-wrap"></div>
       </div>
       <div class="panel" id="p-ladder">
-        <div class="panel-head"><span class="panel-title">Distance ladder</span>
+        <div class="panel-head row2"><span class="panel-title" id="ladder-title">Distance ladder</span>
           <span class="panel-cap">hover icon to focus</span></div>
+        <div class="ladder-dists" id="ladder-dists"></div>
         <div id="ladder-wrap"></div>
       </div>
       <div class="panel" id="p-hists">
@@ -68,19 +67,17 @@
       </div>
     </div>
     <div class="tab-page" data-tab="sky" style="display:none">
+      <div class="panel" id="p-allsky">
+        <div class="panel-head"><span class="panel-title">Galactic frame</span></div>
+        <div id="allsky-wrap"></div>
+        <div class="legend" id="allsky-legend"></div>
+      </div>
       <div class="panel" id="p-layers">
-        <div class="panel-head"><span class="panel-title">Map layers</span>
-          <span class="panel-cap">background map and overlays for both sky views; the legend below follows what is shown</span></div>
+        <div class="panel-head"><span class="panel-title">Map layers</span></div>
         <div id="layers-wrap"></div>
       </div>
-      <div class="panel" id="p-allsky">
-        <div class="panel-head"><span class="panel-title">All-sky (Galactic)</span>
-          <span class="panel-cap">Mollweide, ℓ increasing to the left; click or drag the red circle to move the field; ⤢ to enlarge and hover structures</span></div>
-        <div id="allsky-wrap"></div>
-      </div>
       <div class="panel" id="p-sgr">
-        <div class="panel-head"><span class="panel-title">Sagittarius stream frame</span>
-          <span class="panel-cap">±30° strip in Sgr (Λ, B) coordinates, Λ down the page — the stream runs along the middle</span></div>
+        <div class="panel-head"><span class="panel-title">Sagittarius stream frame</span></div>
         <div id="sgrmap-wrap"></div>
       </div>
     </div>
@@ -98,6 +95,6 @@
   <a href="https://github.com/mdwerneken/viasual-app" target="_blank" rel="noopener">source</a>
 </footer>
 
-<script type="module" src="js/app.js?v=3.3"></script>
+<script type="module" src="js/app.js?v=3.4"></script>
 </body>
 </html>

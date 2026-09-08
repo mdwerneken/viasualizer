@@ -41,6 +41,8 @@ export const UI = {
   hist: '#c05252',
   kepler: '#4caf50',
   sun: '#ffd34d',
+  axis: '#4d4944',          // plot axes / ticks / slider tracks (lighter than the panel border)
+  nnBar: 'rgb(140,170,215)', // fiber-crowding bars: the light end of the HI colorbar
   cloud: '#6fd8e8',         // HVC clouds
   sight: '#ffffff',         // literature sightlines
   ...THEMES.dark,
@@ -48,7 +50,7 @@ export const UI = {
 
 // Via survey identity colors (pointings on the maps + list chips)
 export const SVY_COL = { sps: '#f0a14d', dgs: '#2ec695', cgs: '#e0524f', krs: '#4caf50', rbs: '#c77bd8', tfs: '#c77bd8' };
-export const SVY_SHORT = { sps: 'Streams', dgs: 'Dwarfs', cgs: 'Cold Gas', krs: 'Kepler', rbs: 'Rubin', tfs: 'Transients≈' };
+export const SVY_SHORT = { sps: 'Streams', dgs: 'Dwarfs', cgs: 'Cold Gas', krs: 'Kepler', rbs: 'Rubin', tfs: 'Transients (rand)' };
 
 export const KIND_COL = { 0: '#c05252', 1: UI.accent2, 2: UI.member, 3: UI.halo, 4: UI.kg, 5: UI.bhb, 6: UI.kep, 7: UI.member2 };
 export const KIND_LBL = { 0: 'stream stars', 1: 'quasars', 2: 'dwarf members', 3: 'halo RRL', 4: 'K giants', 5: 'BHB', 6: 'Kepler stars', 7: 'Geha members' };

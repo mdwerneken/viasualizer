@@ -41,6 +41,7 @@ export const state = {
   tab: 'field',                // dossier tab: field | sky
   lock: null,                  // {kind:'stream'|'gc'|'dwarf'|'cone', id, name, dist} go-to lock
   sidebar: true,               // left control sidebar open
+  listsOpen: false,            // Field lists group open → player bar shown
   // field lists (v3)
   listSrc: [],                 // active field lists, e.g. ['via:sps','via:dgs'] or ['top'] or ['saved','bish19']
   listSort: 'order',           // order | rungs | targets | qso | nhi | dec
@@ -81,7 +82,7 @@ export function syncListFlags() {
 }
 
 // ---- persisted preferences (sidebar, layer toggles) ---------------------------------
-const PREF_KEYS = ['sidebar', 'viaOn', 'via3d', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
+const PREF_KEYS = ['sidebar', 'listsOpen', 'viaOn', 'via3d', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
   'cloudsOn', 'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'diskOn', 'listSort'];
 let prefTimer = null;
 function savePrefs() {
