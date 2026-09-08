@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIAsualizer</title>
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="stylesheet" href="css/style.css?v=4.0">
+<script type="importmap">
+  { "imports": { "three": "./js/vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="loading">
+  <div class="load-card">
+    <img class="load-logo" src="img/via_oval.png" alt="Via">
+    <div id="load-progress">starting…</div>
+  </div>
+</div>
+
+<div id="layout" class="sb-open">
+  <aside id="sidebar">
+    <div class="brand-row">
+      <span class="brand-mark"><img class="brand-logo" src="img/via_logo_white.png" alt="VIA"><span class="brand">sualizer</span></span>
+      <span class="brand-btns">
+        <button id="help-btn" class="text-btn" title="replay the 15-second tutorial">Tutorial</button>
+      </span>
+    </div>
+    <div id="sidebar-body"></div>
+  </aside>
+  <button id="sb-toggle" class="icon-btn" title="show / hide controls (C)">☰</button>
+
+  <main id="main">
+    <div id="scene"></div>
+    <div id="player" hidden></div>
+    <div id="bottom-bar"></div>
+  </main>
+
+  <section id="dossier">
+    <nav id="tabs">
+      <button class="tab-btn" data-tab="field">Field</button>
+      <button class="tab-btn" data-tab="sky">Sky</button>
+    </nav>
+    <div class="tab-page" data-tab="field">
+      <div class="panel" id="p-finder">
+        <div class="panel-head row2"><span class="panel-title"><span class="tcount" id="fov-title">1.0°</span> field of view</span>
+          <span class="panel-cap" id="fov-note"></span></div>
+        <div id="finder-wrap"></div>
+        <div id="fov-box"></div>
+      </div>
+      <div class="panel" id="p-stats">
+        <div class="panel-head row2"><span class="panel-title" id="targets-title">Targets</span>
+          <span class="panel-cap">hover number to focus</span></div>
+        <div id="stats-wrap"></div>
+      </div>
+      <div class="panel" id="p-ladder">
+        <div class="panel-head row2"><span class="panel-title" id="ladder-title">Distance ladder</span>
+          <span class="panel-cap">hover icon to focus</span></div>
+        <div class="ladder-dists" id="ladder-dists"></div>
+        <div id="ladder-wrap"></div>
+      </div>
+      <div class="panel" id="p-hists">
+        <div class="panel-head"><span class="panel-title">Field stats</span></div>
+        <div id="hists-wrap"></div>
+      </div>
+    </div>
+    <div class="tab-page" data-tab="sky" style="display:none">
+      <div class="panel" id="p-allsky">
+        <div class="panel-head"><span class="panel-title">Galactic frame</span></div>
+        <div id="allsky-wrap"></div>
+        <div class="legend" id="allsky-legend"></div>
+      </div>
+      <div class="panel" id="p-layers">
+        <div class="panel-head"><span class="panel-title">Map layers</span></div>
+        <div id="layers-wrap"></div>
+      </div>
+      <div class="panel" id="p-sgr">
+        <div class="panel-head"><span class="panel-title">Sagittarius stream frame</span></div>
+        <div id="sgrmap-wrap"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="tooltip3d" class="tooltip"></div>
+<div id="tooltip2d" class="tooltip"></div>
+<div id="tour" hidden></div>
+
+<footer id="credit">
+  <a href="https://via-project.org" target="_blank" rel="noopener">The Via Project</a> ·
+  <a href="v2/" title="frozen v2.6 (9-6-26)">v2</a> ·
+  <a href="v1/" title="original app">v1</a> ·
+  <a href="https://github.com/mdwerneken/viasual-app" target="_blank" rel="noopener">source</a>
+</footer>
+
+<script type="module" src="js/app.js?v=4.0"></script>
+</body>
+</html>

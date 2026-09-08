@@ -44,7 +44,7 @@ function catFromJson(raw) {
 }
 
 // bump when files in data/ change, so deployed pages never read stale caches
-export const DATA_VERSION = 'v3.9';
+export const DATA_VERSION = 'v4.0';
 const q = `?${DATA_VERSION}`;
 
 export async function loadCore(dataDir, onProgress = () => {}) {
@@ -80,8 +80,7 @@ export async function loadCore(dataDir, onProgress = () => {}) {
   const i16 = (k) => makeGrid(maps[k].data, maps[k].shape, step, l0, b0, { kind: 'i16', scale: 0.1 });
   D.MAPS = { total: u8('total'), hvc: u8('hvc'), vlsr: i16('vlsr'), vgsr: i16('vgsr'), sfd: u8('sfd') };
   // cube-derived products (tools/build_hi_cube.py) when present
-  for (const k of ['vmean', 'vdisp']) if (maps[k]) D.MAPS[k] = i16(k);
-  for (const k of ['nlvc', 'nivc', 'nhvc']) if (maps[k]) D.MAPS[k] = u8(k);
+  for (const k of ['vmean', 'vdisp', 'nlvc', 'nivc', 'nhvc']) if (maps[k]) D.MAPS[k] = u8(k);
   D.MAPS_NOTE = maps.note ? maps.note.data[0] : '';
   D.DUST = { grid: D.MAPS.sfd };                 // SFD lives in maps.npz now
 
