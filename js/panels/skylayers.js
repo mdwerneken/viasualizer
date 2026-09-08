@@ -2,7 +2,7 @@
 // visible but faint while clouds are off). The "Active on map" legend is rendered under the
 // Galactic-frame map (and inside its full-screen view) via renderLegend().
 // Field-list overlays and survey regions are toggled in the sidebar (Field lists / Focus on object).
-import { D } from '../data.js';
+import { D, bgAvailable } from '../data.js';
 import { state, set, on } from '../state.js';
 import { UI, SVY_COL, SVY_SHORT, bgLabel, BG_OPTIONS } from '../colors.js';
 import { SOURCES } from '../lists.js';
@@ -51,7 +51,7 @@ function render() {
   const faint = state.cloudsOn ? '' : ' faint';
   el.innerHTML = `
     <div class="layer-row"><span class="lab">background</span>
-      <select id="ly-bg">${BG_OPTIONS.map(([v, t]) => opt(v, t, state.himap)).join('')}</select></div>
+      <select id="ly-bg">${BG_OPTIONS.filter(([v]) => bgAvailable(v)).map(([v, t]) => opt(v, t, state.himap)).join('')}</select></div>
     <div class="layer-row clouds-main"><span class="lab">HVC clouds</span>
       ${chip('cloudsOn', 'show cloud catalogs', 'draw the HVC cloud catalogs on the maps and the field view', UI.cloud)}
     </div>
@@ -92,7 +92,7 @@ function legendHtml() {
       const s = SOURCES.find(x => x.id === id);
       if (!s) continue;
       if (s.svy) L.push(lg(SVY_COL[s.svy], `Via ${SVY_SHORT[s.svy] ?? s.svy} pointings (1°)`));
-      else if (id === 'bish19') L.push(lg(UI.text, 'Bish+19 BHB sightlines'));
+      else if (D.SIGHT?.[id]) L.push(lg(UI.text, `${s.short} sightlines`));
       else L.push(lg(s.color, `${s.title} (field list)`));
     }
   }

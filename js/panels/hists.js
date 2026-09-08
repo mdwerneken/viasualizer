@@ -19,7 +19,7 @@ export function initHists(container) {
   const ctl = document.createElement('div');
   ctl.className = 'hist-controls';
   ctl.innerHTML = `<label class="pc-chk"><input type="checkbox" id="connect-chk" ${state.connect ? 'checked' : ''}> nearest-neighbour lines on the field view</label>`;
-  for (const id of ['dist', 'mag', 'nn']) {
+  for (const id of ['dist', 'hivel', 'mag', 'nn']) {
     const box = document.createElement('div');
     box.className = 'hist-box';
     const cvs = document.createElement('canvas');
@@ -83,6 +83,7 @@ function drawAll() {
   drawKindHist('dist', F.src.dist, 'distances', 'distance [kpc]', true,
     (n, a, b) => `${n} at ${a}–${b} kpc`,
     `${F.idx.filter(i => D.s_dist_known[i]).length} catalog · ${F.idx.filter(i => !D.s_dist_known[i]).length} geometric`, true);
+  drawHiVel();
   drawKindHist('mag', F.src.G, 'magnitudes', 'Gaia G (BHB: SDSS g)', false,
     (n, a, b) => `${n} at G = ${a}–${b}`, `limit G ≤ ${state.ghi.toFixed(1)}`, false);
   drawNN();
@@ -180,6 +181,47 @@ function drawKindHist(id, values, title, xlab, infBin, labFmt, note, rungTicks) 
 }
 
 // backlights beyond distance d: N(dist > d) on a log axis; quasars add a constant floor
+// mean HI spectrum over the field from the coarse HI4PI cube (10 km/s bins)
+function drawHiVel() {
+  const rec = els.hivel;
+  const cvs = rec.cvs;
+  const w = cvs.parentElement.clientWidth;
+  if (!w) return;
+  const h = 132;
+  const ctx = fitCanvas(cvs, w, h);
+  ctx.clearRect(0, 0, w, h);
+  const plot = { x: 38, y: 18, w: w - 48, h: h - 46 };
+  rec.bars = [];
+  label(ctx, 'HI velocity distribution', plot.x, 12, { size: 10, color: UI.text });
+  if (!F.spec) { label(ctx, D.HICUBE ? 'no cube pixel in the field' : 'HI cube loading…', w / 2, h / 2, { align: 'center', color: UI.textDim }); return; }
+  label(ctx, `HI4PI · ${F.spec.npix} × 27′ pixel${F.spec.npix === 1 ? '' : 's'}`, w - 8, 12, { size: 8.5, align: 'right', color: UI.textDim });
+  const T = F.spec.T, ve = F.spec.vEdges, nb = T.length;
+  const lo = ve[0], hi = ve[nb];
+  const maxT = Math.max(0.05, ...T);
+  const toX = v => plot.x + (v - lo) / (hi - lo) * plot.w;
+  // log-ish y (asinh) so the faint high-velocity wings stay visible next to the disk peak
+  const yv = t => Math.asinh(t / 0.05) / Math.asinh(maxT / 0.05);
+  ctx.fillStyle = scales.dist.css(0.82);
+  for (let k = 0; k < nb; k++) {
+    const x0 = toX(ve[k]), x1 = toX(ve[k + 1]);
+    const bh = yv(T[k]) * plot.h;
+    if (T[k] > 0) ctx.fillRect(x0 + 0.3, plot.y + plot.h - bh, x1 - x0 - 0.6, bh);
+    rec.bars.push({ x0, x1, y0: plot.y, y1: plot.y + plot.h, lab: `v_LSR ${ve[k]}…${ve[k + 1]} km/s: ⟨T_B⟩ ${T[k].toFixed(3)} K → N(HI) ≈ ${(1.823e18 * 10 * T[k]).toExponential(1)} cm⁻²` });
+  }
+  // |v| = 40 and 90 km/s window edges
+  ctx.save(); ctx.strokeStyle = UI.textDim; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
+  for (const v of [-90, -40, 40, 90]) { ctx.beginPath(); ctx.moveTo(toX(v), plot.y); ctx.lineTo(toX(v), plot.y + plot.h); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = UI.axis; ctx.strokeRect(plot.x, plot.y, plot.w, plot.h);
+  label(ctx, 'v_LSR [km/s]', plot.x + plot.w / 2, h - 4, { align: 'center', size: 9, color: UI.textDim });
+  for (const v of [-600, -400, -200, 0, 200, 400, 600]) {
+    ctx.fillStyle = UI.axis; ctx.fillRect(toX(v), plot.y + plot.h, 1, 3);
+    label(ctx, String(v), toX(v), h - 16, { align: 'center', size: 8, color: UI.textDim });
+  }
+  label(ctx, `${maxT.toFixed(1)} K`, plot.x - 4, plot.y + 8, { align: 'right', size: 8, color: UI.textDim });
+  label(ctx, '0', plot.x - 4, plot.y + plot.h + 3, { align: 'right', size: 8, color: UI.textDim });
+}
+
 const FIBER_MIN_SEP = 1.2;   // arcmin — minimum fiber separation (confirmed by Matt 9-8-26 as the working value)
 function drawNN() {
   const rec = els.nn;

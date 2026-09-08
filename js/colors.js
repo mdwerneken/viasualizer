@@ -52,7 +52,7 @@ export const SVY_COL = { sps: '#f0a14d', dgs: '#2ec695', cgs: '#e0524f', krs: '#
 export const SVY_SHORT = { sps: 'Streams', dgs: 'Dwarfs', cgs: 'Cold Gas', krs: 'Kepler', rbs: 'Rubin', tfs: 'Transients (rand)' };
 
 export const KIND_COL = { 0: '#c05252', 1: UI.accent2, 2: UI.member, 3: UI.halo, 4: UI.kg, 5: UI.bhb, 6: UI.kep, 7: UI.member2 };
-export const KIND_LBL = { 0: 'stream stars', 1: 'quasars', 2: 'dwarf members', 3: 'halo RRL', 4: 'K giants', 5: 'BHB', 6: 'Kepler stars', 7: 'Geha members' };
+export const KIND_LBL = { 0: 'stream stars', 1: 'quasars', 2: 'DG members', 3: 'halo RRL', 4: 'K giants', 5: 'BHB', 6: 'Kepler stars', 7: 'GC/DG members (Geha)' };
 export const STREAM_SW = '#c05252';   // sidebar swatch for the streams show-toggle
 
 // 20-color stream palette (v1's tab20-style list, works on dark and light)
@@ -142,7 +142,7 @@ export function hexToRgb01(hex) {
 // background-map helpers shared by finder / all-sky / Sgr strip
 export function bgScale() {
   const m = state_himap();
-  if (m === 'vlsr' || m === 'vgsr') return scales.vel;
+  if (m === 'vlsr' || m === 'vgsr' || m === 'vmean') return scales.vel;
   return m === 'hvc' ? scales.hiRed : (m === 'dust' || m.startsWith('e')) ? scales.dust : scales.hiBlue;
 }
 let _himapGetter = () => 'total';
@@ -151,6 +151,8 @@ function state_himap() { return _himapGetter(); }
 export const BG_OPTIONS = [
   ['total', 'HI4PI total N(HI)'], ['hvc', 'HI4PI high-velocity N(HI)'], ['overlay', 'total + HVC overlay'],
   ['vlsr', 'HVC velocity v_LSR (km/s)'], ['vgsr', 'HVC velocity v_GSR (km/s)'],
+  ['vmean', 'HI mean velocity v_LSR (all gas)'], ['vdisp', 'HI velocity dispersion'],
+  ['nlvc', 'N(HI) at |v_LSR| < 40 km/s'], ['nivc', 'N(HI) at 40–90 km/s'], ['nhvc', 'N(HI) at |v_LSR| > 90 km/s'],
   ['dust', 'SFD dust E(B−V) (all distances)'], ['e300', 'Edenhofer 3D dust within 300 pc'],
   ['e600', 'Edenhofer 3D dust within 600 pc'], ['e1250', 'Edenhofer 3D dust within 1.25 kpc'],
 ];
@@ -159,6 +161,11 @@ export function bgLabel() {
   if (m === 'hvc') return 'HVC log N(HI)';
   if (m === 'vlsr') return 'HVC v_LSR [km/s]';
   if (m === 'vgsr') return 'HVC v_GSR [km/s]';
+  if (m === 'vmean') return 'HI ⟨v_LSR⟩ [km/s]';
+  if (m === 'vdisp') return 'HI σ_v [km/s]';
+  if (m === 'nlvc') return 'log N(HI) |v|<40';
+  if (m === 'nivc') return 'log N(HI) 40–90';
+  if (m === 'nhvc') return 'log N(HI) |v|>90';
   if (m === 'dust') return 'log E(B−V) SFD';
   if (m === 'e300') return 'log E (ZGR23) < 300 pc';
   if (m === 'e600') return 'log E (ZGR23) < 600 pc';

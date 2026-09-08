@@ -8,7 +8,7 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 import { D, bgGridFor, gridSample, gridStretch } from './data.js';
 import { state, setField, slideField, replaceLock, on, emit, galField } from './state.js';
 import * as C from './compute.js';
-import { UI, scales, streamColor, HEMI_COL, HEMI_LBL, hexToRgb01, SVY_COL, bgScale } from './colors.js';
+import { UI, scales, streamColor, dwarfColor, HEMI_COL, HEMI_LBL, hexToRgb01, SVY_COL, bgScale } from './colors.js';
 import { LIST, sourceById } from './lists.js';
 
 let renderer, scene, camera, controls, raycaster;
@@ -523,17 +523,20 @@ export function tourCamera(mode) {
   needsRender = true;
 }
 
-function tintCat(pts, cat, selIdx, selName = null, visFn = null) {
+function tintCat(pts, cat, selIdx, selName = null, visFn = null, colorFn = null) {
   const geo = pts.geometry;
   const col = geo.getAttribute('color').array;
   const al = geo.alphaAttr.array;
   const n = cat.lam.length;
-  const [r, g, b] = hexToRgb01(pts.userData.colorHex);
+  const base = hexToRgb01(pts.userData.colorHex);
   const [gr, gg, gb] = hexToRgb01(UI.greyStar);
   const active = selIdx !== null || selName !== null;
+  const cache = new Map();
   for (let i = 0; i < n; i++) {
     if (visFn && !visFn(i)) { al[i] = 0; continue; }
     const isSel = !active || i === selIdx || (selName !== null && cat.name[i] === selName);
+    let r = base[0], g = base[1], b = base[2];
+    if (colorFn) { const hx = colorFn(i); let c = cache.get(hx); if (!c) { c = hexToRgb01(hx); cache.set(hx, c); } [r, g, b] = c; }
     col[3 * i] = isSel ? r : gr; col[3 * i + 1] = isSel ? g : gg; col[3 * i + 2] = isSel ? b : gb;
     al[i] = isSel ? 0.95 : 0.4;
   }
@@ -560,7 +563,8 @@ function restyleObjects() {
   tintCat(dwfPts, D.DWF, state.hlDwarf ? state.dwarfSel : null, null, dwVis);
   const dwName = (state.hlDwarf && state.dwarfSel !== null) ? D.DWF.name[state.dwarfSel] : null;
   tintCat(memPts, D.MEM, null, dwName, memVis);
-  if (mem2Pts) tintCat(mem2Pts, D.MEM2, null, dwName, i => magOk(D.MEM2.G[i]) && (!state.viaDwarfs || D.MEM2.dist[i] < 300));
+  if (mem2Pts) tintCat(mem2Pts, D.MEM2, null, dwName, i => magOk(D.MEM2.G[i]) && (!state.viaDwarfs || D.MEM2.dist[i] < 300),
+    i => (D.MEM2.isGC?.[i] ? UI.gc : dwarfColor(D.DWF.name.indexOf(D.MEM2.name[i]) >= 0 ? D.DWF.name.indexOf(D.MEM2.name[i]) : 0)));
   for (const [key, cat] of [['halo', D.HALO], ['kg', D.KG], ['bhb', D.BHB], ['kep', D.KEP]]) {
     const pts = tracerPts[key];
     if (!pts || !cat) continue;

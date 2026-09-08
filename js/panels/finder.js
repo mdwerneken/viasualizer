@@ -410,7 +410,7 @@ function drawSources(ctx) {
     }
   };
   members(F.mm, D.MEM, KIND.MEM, i => dwarfColorByName(D.MEM.name[i]), '');
-  members(F.mm2, D.MEM2, KIND.MEM2, () => UI.member2, ' (Geha+26, predicted G)');
+  members(F.mm2, D.MEM2, KIND.MEM2, i => (D.MEM2.isGC?.[i] ? UI.gc : dwarfColorByName(D.MEM2.name[i])), ' (Geha+26, predicted G)');
 
   // stream stars — identity colors; Via-stream stars drawn LAST and larger
   const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
@@ -437,17 +437,17 @@ function drawSources(ctx) {
   }
 
   // literature sightlines (white ring + label)
-  if (F.sight?.length) {
-    const S = D.SIGHT.bish19;
-    const [sx, sy] = C.gnomonic(Float64Array.from(F.sight, i => S.lam[i]), Float64Array.from(F.sight, i => S.bet[i]), state.lam0, state.bet0);
-    for (let k = 0; k < F.sight.length; k++) {
-      const i = F.sight[k];
+  for (const [key, idx] of Object.entries(F.sight ?? {})) {
+    if (!idx.length) continue;
+    const S = D.SIGHT[key];
+    const [sx, sy] = C.gnomonic(Float64Array.from(idx, i => S.lam[i]), Float64Array.from(idx, i => S.bet[i]), state.lam0, state.bet0);
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k];
       const [X, Y] = toPx(sx[k], sy[k]);
       circleOutline(ctx, X, Y, 7, UI.text, 1.6);
       dot(ctx, X, Y, 2, UI.text, 1);
       label(ctx, S.name[i].split(' ')[0], X + 9, Y + 3, { size: big ? 11 : 8.5, color: UI.text });
-      hitList.push({ x: X, y: Y, r: 9, pri: 2,
-        html: `<b>${S.name[i]}</b><br>Bish+19 Keck/HIRES Na I + Ca II sightline<br>${S.dist[i]} kpc · g ${S.g[i]} · v_helio ${S.hrv[i]} km/s`,
+      hitList.push({ x: X, y: Y, r: 9, pri: 2, html: sightHtml(key, i),
         lam: S.lam[i], bet: S.bet[i], lockInfo: { kind: 'star', id: i, name: S.name[i].split(' ')[0], dist: S.dist[i] } });
     }
   }
@@ -482,6 +482,11 @@ function drawSources(ctx) {
   }
 }
 
+export function sightHtml(key, i) {
+  const S = D.SIGHT[key];
+  if (key === 'bish21') return `<b>${S.name[i]}</b> · BHB at ${S.dist[i]} kpc<br>Bish+21 QuaStar pair with <b>${S.qso[i]}</b><br>quasar ${S.sep[i]}° away · HST/COS`;
+  return `<b>${S.name[i]}</b><br>Bish+19 Keck/HIRES Na I + Ca II sightline<br>${S.dist[i]} kpc · g ${S.g[i]} · v_helio ${S.hrv[i]} km/s`;
+}
 export function cloudColor(i) {
   const cl = D.CLOUDS;
   if (state.cloudColor === 'none') return UI.cloud;

@@ -80,7 +80,11 @@ function render() {
   const gas = [];
   if (F.hiTotal) gas.push(`log N(HI) <b>${F.hiTotal.logMean.toFixed(2)}</b> mean · ${F.hiTotal.logPeak.toFixed(2)} peak`);
   if (['hvc', 'overlay', 'vlsr', 'vgsr'].includes(state.himap)) gas.push(F.hi ? `HVC log N(HI) <b>${F.hi.logMean.toFixed(2)}</b> mean · ${F.hi.logPeak.toFixed(2)} peak` : 'no HVC gas in field');
-  if (F.vel) gas.push(`HVC ${state.himap === 'vlsr' ? 'v<sub>LSR</sub>' : 'v<sub>GSR</sub>'} <b>${F.vel.mean.toFixed(0)}</b> km/s mean (intensity-weighted, Westmeier 2018)`);
+  if (F.vel) {
+    const lab = { vlsr: 'HVC v<sub>LSR</sub>', vgsr: 'HVC v<sub>GSR</sub>', vmean: 'HI ⟨v<sub>LSR</sub>⟩ (all gas)', vdisp: 'HI σ<sub>v</sub>' }[state.himap];
+    const src = state.himap.startsWith('v') && state.himap !== 'vmean' && state.himap !== 'vdisp' ? 'Westmeier 2018' : 'HI4PI cube moments';
+    gas.push(`${lab} <b>${F.vel.mean.toFixed(0)}</b> km/s mean in field (${src})`);
+  }
   if (F.ebv) gas.push(`E(B−V) <b>${F.ebv.mean.toFixed(3)}</b> mag (SFD, all distances)`);
   if (F.e3d) gas.push(`ZGR23 E <b>${F.e3d.mean.toFixed(3)}</b> within ${{ e300: '300 pc', e600: '600 pc', e1250: '1.25 kpc' }[state.himap]} (Edenhofer+24; A<sub>V</sub> ≈ 2.8 E)`);
   if (state.cloudsOn && F.cloudsInField) {

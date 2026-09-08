@@ -44,7 +44,7 @@ function catFromJson(raw) {
 }
 
 // bump when files in data/ change, so deployed pages never read stale caches
-export const DATA_VERSION = 'v3.5';
+export const DATA_VERSION = 'v3.8';
 const q = `?${DATA_VERSION}`;
 
 export async function loadCore(dataDir, onProgress = () => {}) {
@@ -79,6 +79,9 @@ export async function loadCore(dataDir, onProgress = () => {}) {
   const u8 = (k) => makeGrid(maps[k].data, maps[k].shape, step, l0, b0, { kind: 'u8', lo: maps[`${k}_lo`].data[0], hi: maps[`${k}_hi`].data[0] });
   const i16 = (k) => makeGrid(maps[k].data, maps[k].shape, step, l0, b0, { kind: 'i16', scale: 0.1 });
   D.MAPS = { total: u8('total'), hvc: u8('hvc'), vlsr: i16('vlsr'), vgsr: i16('vgsr'), sfd: u8('sfd') };
+  // cube-derived products (tools/build_hi_cube.py) when present
+  for (const k of ['vmean', 'vdisp']) if (maps[k]) D.MAPS[k] = i16(k);
+  for (const k of ['nlvc', 'nivc', 'nhvc']) if (maps[k]) D.MAPS[k] = u8(k);
   D.MAPS_NOTE = maps.note ? maps.note.data[0] : '';
   D.DUST = { grid: D.MAPS.sfd };                 // SFD lives in maps.npz now
 
@@ -136,9 +139,9 @@ export async function loadCore(dataDir, onProgress = () => {}) {
   } else D.VIA = null;
 
   // literature sightlines (repeatable absorption experiments)
+  // literature sightline sets (each becomes a standing custom field collection)
   D.SIGHT = sightRaw ?? null;
-  if (D.SIGHT?.bish19) {
-    const s = D.SIGHT.bish19;
+  if (D.SIGHT) for (const s of Object.values(D.SIGHT)) {
     s.lam = Float64Array.from(s.lam); s.bet = Float64Array.from(s.bet);
     s.l = Float64Array.from(s.l); s.b = Float64Array.from(s.b);
     s.UG = unitVectors(s.lam, s.bet);
@@ -225,6 +228,10 @@ export async function loadGeha(dataDir) {
       lam: m.lam.data, bet: m.bet.data, l: m.l.data, b: m.b.data,
       dist: m.dist.data, G: m.G.data, pmem: m.pmem.data, vrad: m.vrad.data,
     }, D.SUN_GC, D.RG_GAL2GC));
+    // which members belong to a globular cluster (vs a dwarf): matched by normalised name
+    const norm = x => String(x).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const gcSet = new Set(D.GCC.name.map(norm));
+    D.MEM2.isGC = Uint8Array.from(D.MEM2.name, nm => gcSet.has(norm(nm)) ? 1 : 0);
     return D.MEM2.lam.length;
   } catch (e) { console.warn('[viasual] no members_geha.npz:', e.message); D.MEM2 = null; return 0; }
 }
@@ -317,6 +324,38 @@ export function gridStats(G, l0, b0, radius, log = true) {
   return log ? { mean, peak, logMean: Math.log10(mean), logPeak: Math.log10(peak), n: cnt } : { mean, peak, n: cnt };
 }
 
+// HI4PI coarse spectral cube (tools/build_hi_cube.py): Nside-128 HEALPix pixels x 10 km/s bins,
+// mean T_B as uint8 log; used for the "HI velocity distribution in this field" plot
+export async function loadHicube(dataDir) {
+  try {
+    const c = await loadNpz(`${dataDir}/hicube.npz${q}`);
+    const nb = c.v_edges.data.length - 1, npix = c.l.data.length;
+    D.HICUBE = { T: c.T.data, nb, npix, tlo: c.t_lo.data[0], thi: c.t_hi.data[0], vEdges: c.v_edges.data,
+      l: c.l.data, b: c.b.data, UG: unitVectors(c.l.data, c.b.data) };
+    return npix;
+  } catch (e) { console.warn('[viasual] no hicube.npz:', e.message); D.HICUBE = null; return 0; }
+}
+// mean HI spectrum (K per 10 km/s bin) over cube pixels within `radius` deg of (l0, b0)
+export function hiSpectrumInField(l0, b0, radius) {
+  const C = D.HICUBE; if (!C) return null;
+  const D2R = Math.PI / 180, lr = l0 * D2R, br = b0 * D2R;
+  const ux = Math.cos(br) * Math.cos(lr), uy = Math.cos(br) * Math.sin(lr), uz = Math.sin(br);
+  const cosr = Math.cos((radius + 0.23) * D2R);          // + half an Nside-128 pixel
+  const sum = new Float64Array(C.nb), cnt = new Int32Array(C.nb);
+  let n = 0;
+  for (let p = 0; p < C.npix; p++) {
+    if (C.UG[3 * p] * ux + C.UG[3 * p + 1] * uy + C.UG[3 * p + 2] * uz < cosr) continue;
+    n++;
+    for (let k = 0; k < C.nb; k++) {
+      const v = C.T[p * C.nb + k];
+      if (v === 0) continue;
+      sum[k] += 10 ** (C.tlo + (v - 1) * (C.thi - C.tlo) / 254); cnt[k]++;
+    }
+  }
+  if (!n) return null;
+  return { T: Float64Array.from(sum, (s, k) => cnt[k] ? s / cnt[k] : 0), vEdges: C.vEdges, npix: n };
+}
+
 // Edenhofer+24 3D dust: integrated slices (to 300 / 600 / 1250 pc) + a local point cloud
 export async function loadDust3d(dataDir) {
   try {
@@ -335,10 +374,19 @@ export async function loadDust3d(dataDir) {
 
 // the background map for a `himap` key: { gal: grid, overlay?: grid, sym: symmetric stretch }
 // keys: total | hvc | overlay | vlsr | vgsr | dust (SFD) | e300 | e600 | e1250 (Edenhofer integrated)
+export function bgAvailable(himap) {
+  if (himap === 'total' || himap === 'overlay') return true;
+  if (himap?.startsWith('e')) return !!D.DUST3D;
+  if (himap === 'dust') return !!D.MAPS.sfd;
+  return !!D.MAPS[himap];
+}
 export function bgGridFor(himap) {
   const M = D.MAPS;
   if (himap === 'hvc') return { gal: M.hvc, overlay: null, sym: false };
   if (himap === 'vlsr' || himap === 'vgsr') return { gal: M[himap], overlay: null, sym: true };
+  if (himap === 'vmean' && M.vmean) return { gal: M.vmean, overlay: null, sym: true };
+  if (himap === 'vdisp' && M.vdisp) return { gal: M.vdisp, overlay: null, sym: false };
+  if (['nlvc', 'nivc', 'nhvc'].includes(himap) && M[himap]) return { gal: M[himap], overlay: null, sym: false };
   if (himap === 'dust') return { gal: M.sfd, overlay: null, sym: false };
   if (himap?.startsWith('e') && D.DUST3D) {
     const k = { e300: 0, e600: 1, e1250: 2 }[himap] ?? 2;

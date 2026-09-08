@@ -17,7 +17,10 @@ export const GROUPS = { via: 'Planned Via fields', top: 'Promising cold-gas fiel
 export const CUSTOM_COL = '#ffffff';
 export const TOP_COL = '#d8a35a';
 // literature field lists offered by the custom "add a list" dropdown (Bish+19 by default)
-export const EXTRA_LISTS = [{ id: 'bish19', title: 'Bish+19 BHBs (Na I / Ca II sightlines)', short: 'Bish+19 BHBs', color: CUSTOM_COL }];
+export const EXTRA_LISTS = [
+  { id: 'bish19', title: 'Bish+19 BHBs (Keck/HIRES Na I / Ca II sightlines)', short: 'Bish+19 BHBs', color: CUSTOM_COL },
+  { id: 'bish21', title: 'Bish+21 QuaStar (BHB–quasar pairs, HST/COS)', short: 'Bish+21 QuaStar', color: CUSTOM_COL },
+];
 
 function viaItems(svy) {
   const V = D.VIA, out = [];
@@ -46,13 +49,20 @@ function candGrid(fov, ghi) {
   return best;
 }
 function topItems(sec) {
-  const best = candGrid(state.fov, state.ghi);
+  // the Kepler list is 1° only and gridded in G at 0.5 mag; the main lists follow the FOV too
+  const pool = D.CANDIDATES.filter(c => (c.sec ?? 'top') === sec);
+  if (!pool.length) return [];
+  let best;
+  if (sec === 'kepler') {
+    let bd = Infinity;
+    for (const c of pool) { const d = Math.abs((c.glim ?? 20) - state.ghi); if (d < bd) { bd = d; best = { fov: 1, glim: c.glim ?? 20 }; } }
+  } else best = candGrid(state.fov, state.ghi);
   if (!best) return [];
-  return D.CANDIDATES.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim && (c.sec ?? 'top') === sec)
+  return pool.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim)
     .map(c => ({
       lam: c.lam, bet: c.bet, l: c.l, b: c.b, fov: c.fov, ref: D.CANDIDATES.indexOf(c),
       label: c.combo, sub: `G ≤ ${best.glim}`,
-      meta: `${c.n_rungs} rungs · log N(HI) ${c.log_nhi} · ${c.site}`,
+      meta: `${c.n_rungs} rungs${Number.isFinite(c.n_qso) ? ` · ${c.n_qso} quasars` : ''} · log N(HI) ${c.log_nhi} · ${c.site}`,
       scan: { rungs: c.n_rungs, nhi: c.log_nhi },
     }));
 }
@@ -63,13 +73,13 @@ function savedItems() {
     meta: `saved field${f.ghi ? ` · G ≤ ${f.ghi}` : ''}`,
   }));
 }
-function bishItems() {
-  const S = D.SIGHT?.bish19;
+function sightItems(key) {
+  const S = D.SIGHT?.[key];
   if (!S) return [];
   return S.name.map((nm, i) => ({
     lam: S.lam[i], bet: S.bet[i], l: S.l[i], b: S.b[i], fov: 1, ref: i,
     label: nm.split(' ')[0], sub: `${S.dist[i]} kpc`,
-    meta: `Bish+19 Keck/HIRES Na I + Ca II · g ${S.g[i]} · v_helio ${S.hrv[i]} km/s`,
+    meta: key === 'bish21' ? `QuaStar pair with ${S.qso[i]} (${S.sep[i]}° away) · HST/COS` : `Bish+19 Keck/HIRES Na I + Ca II · g ${S.g[i]} · v_helio ${S.hrv[i]} km/s`,
     dist: S.dist[i],
   }));
 }
@@ -86,6 +96,7 @@ export function initLists() {
   SOURCES.length = 0;
   SOURCES.push({ id: 'top', group: 'top', color: TOP_COL, title: 'Best by distance coverage', short: 'Best by distance coverage', items: () => topItems('top') });
   SOURCES.push({ id: 'topvia', group: 'top', color: TOP_COL, title: 'Best including a Via stream', short: 'Best including a Via stream', items: () => topItems('via') });
+  SOURCES.push({ id: 'topkep', group: 'top', color: '#4caf50', title: 'Best in the Kepler field (1°, Kepler stars as rungs)', short: 'Best in the Kepler field', items: () => topItems('kepler') });
   if (D.VIA) {
     // display order (Matt 9-7-26): streams, dwarfs, cold gas, transients, kepler; rbs (4 placeholder rows) folded into tfs
     for (const svy of ['sps', 'dgs', 'cgs', 'tfs', 'krs']) {
@@ -97,7 +108,7 @@ export function initLists() {
   SOURCES.push({ id: 'saved', group: 'custom', color: CUSTOM_COL, title: 'Saved fields', short: 'Saved fields', items: savedItems });
   for (const x of EXTRA_LISTS) {
     SOURCES.push({ id: x.id, group: 'custom', color: x.color, title: x.title, short: x.short ?? x.title,
-      items: x.id === 'bish19' ? bishItems : () => [] });
+      items: () => sightItems(x.id) });
   }
   on('saved', () => { if (state.listSrc.includes('saved')) rebuild(); });
   on('ui', () => { if (state.listSrc.some(s => s.startsWith('top'))) rebuild(); invalidateScores(); });

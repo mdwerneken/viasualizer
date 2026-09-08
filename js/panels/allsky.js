@@ -226,11 +226,11 @@ function buildStarLayer(w, h) {
     ctx.globalAlpha = 1;
   }
   if (state.dgOn && state.mem2On && D.MEM2) {
-    ctx.fillStyle = UI.member2;
     ctx.globalAlpha = 0.7;
     for (let i = 0; i < D.MEM2.lam.length; i += 2) {
       const [mx, my] = C.mollXY(D.MEM2.l[i], D.MEM2.b[i]);
       const [X, Y] = toPx(mx, my);
+      ctx.fillStyle = D.MEM2.isGC?.[i] ? UI.gc : UI.member;
       ctx.fillRect(X, Y, 1.6, 1.6);
     }
     ctx.globalAlpha = 1;
@@ -307,7 +307,7 @@ function draw() {
   if (state.viaOn) {
     const r1 = 0.5 * map.sx * 0.049;
     for (const it of LIST.items) {
-      if (it.src.startsWith('via:') || it.src === 'bish19') continue;
+      if (it.src.startsWith('via:') || D.SIGHT?.[it.src]) continue;
       const col = sourceById(it.src)?.color ?? UI.text;
       const [mx, my] = C.mollXY(it.l, it.b);
       const [X, Y] = toPx(mx, my);
@@ -316,8 +316,8 @@ function draw() {
     }
   }
   // literature sightlines
-  if (state.sightOn && D.SIGHT?.bish19) {
-    const S = D.SIGHT.bish19;
+  for (const key of state.sightKeys ?? []) {
+    const S = D.SIGHT[key];
     for (let i = 0; i < S.name.length; i++) {
       const [mx, my] = C.mollXY(S.l[i], S.b[i]);
       const [X, Y] = toPx(mx, my);

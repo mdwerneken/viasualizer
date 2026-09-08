@@ -3,7 +3,7 @@
 // nothing to the ladder, fiber budget, histograms or stats.
 // v3: computeField() is a pure function of (lam, bet, fov) + the visibility state, so
 // field LISTS can be scored in the background with exactly the live rules.
-import { D, quaiaInField, sortedCatInField, bgGridFor, gridStats } from './data.js';
+import { D, quaiaInField, sortedCatInField, bgGridFor, gridStats, hiSpectrumInField } from './data.js';
 import { state, on, emit, galField } from './state.js';
 import * as C from './compute.js';
 import { ladder } from './rungs.js';
@@ -114,7 +114,8 @@ export function computeField(lam0, bet0, fov, opts = {}) {
     const cand = C.fieldIndices(lam0, bet0, D.VIA.UG, r + 0.5);
     for (const i of cand) if (state.viaSvy[D.VIA.svy[i]]) R.via.push(i);
   }
-  R.sight = (D.SIGHT?.bish19 && state.sightOn) ? C.fieldIndices(lam0, bet0, D.SIGHT.bish19.UG, r) : [];
+  R.sight = {};                       // { setKey: [indices in field] }
+  for (const k of state.sightKeys ?? []) if (D.SIGHT?.[k]) R.sight[k] = C.fieldIndices(lam0, bet0, D.SIGHT[k].UG, r);
 
   R.src = buildSources([
     { cat: D, kind: KIND.STAR, idx: R.idx, dist: D.s_dist_use, vr: D.s_Vr, },
@@ -151,7 +152,8 @@ export function computeField(lam0, bet0, fov, opts = {}) {
   const hvcMode = state.himap === 'hvc' || state.himap === 'vlsr' || state.himap === 'vgsr' || state.himap === 'overlay';
   R.hiTotal = gridStats(D.MAPS.total, l0, b0, r, true);
   R.hi = hvcMode ? gridStats(D.MAPS.hvc, l0, b0, r, true) : R.hiTotal;
-  R.vel = (state.himap === 'vlsr' || state.himap === 'vgsr') ? gridStats(D.MAPS[state.himap], l0, b0, r, false) : null;
+  R.vel = (['vlsr', 'vgsr', 'vmean', 'vdisp'].includes(state.himap) && D.MAPS[state.himap]) ? gridStats(D.MAPS[state.himap], l0, b0, r, false) : null;
+  R.spec = D.HICUBE ? hiSpectrumInField(l0, b0, r) : null;
   R.ebv = gridStats(D.MAPS.sfd, l0, b0, r, true);
   R.e3d = (D.DUST3D && state.himap?.startsWith('e')) ? gridStats(bgGridFor(state.himap).gal, l0, b0, r, true) : null;
 

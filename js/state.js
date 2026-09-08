@@ -28,14 +28,15 @@ export const state = {
   boxOn: false,                // 100 kpc reference box (no UI since 9-7-26)
   diskOn: true,                // galactic disk
   streamsOn: true, qsoOn: true, gcOn: true, dgOn: true, memOn: true, haloOn: false,
-  kgOn: false, bhbOn: false, kepOn: false, mem2On: false,   // v3 catalogs (default off)
+  kgOn: false, bhbOn: false, kepOn: false, mem2On: true,    // v3 catalogs (Geha members on by default since 9-8-26)
   cloudsOn: false, cloudFilter: 'all',   // all | compact | vhvc
   cloudHipass: true, cloudAlfalfa: true, cloudGass: true,
   cloudColor: 'none',          // none | vlsr | vgsr — color clouds by velocity
   viaOn: true,                 // overlay the ACTIVE field lists on the sky maps / finder
   viaSvy: { sps: false, dgs: false, cgs: false, krs: false, rbs: false, tfs: false }, // derived from listSrc
   via3d: false,                // active field lists as a shell of dots in 3D (15 kpc)
-  sightOn: false,              // Bish+19 sightlines — derived from listSrc ('bish19')
+  sightOn: false,              // any literature sightline set active — derived from listSrc
+  sightKeys: [],               // which sets (D.SIGHT keys) — derived from listSrc
   dust3dOn: false,             // Edenhofer+24 local 3D dust cloud in the 3D view
   connect: false,              // NN match lines on finder
   tab: 'field',                // dossier tab: field | sky
@@ -78,7 +79,8 @@ export function set(patch, topic) {
 // lists (one control drives the player, the maps and the 3D shell — Matt 9-7-26)
 export function syncListFlags() {
   for (const k of Object.keys(state.viaSvy)) state.viaSvy[k] = state.listSrc.includes(`via:${k}`);
-  state.sightOn = state.listSrc.includes('bish19');
+  state.sightKeys = state.listSrc.filter(id => D.SIGHT && D.SIGHT[id]);
+  state.sightOn = state.sightKeys.length > 0;
 }
 
 // ---- persisted preferences (sidebar, layer toggles) ---------------------------------

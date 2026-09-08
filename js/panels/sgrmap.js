@@ -234,15 +234,15 @@ function draw() {
   if (state.viaOn) {
     const r1 = 0.5 / (BMAX - BMIN) * map.w;
     for (const it of LIST.items) {
-      if (it.src.startsWith('via:') || it.src === 'bish19' || Math.abs(it.bet) > 30.5) continue;
+      if (it.src.startsWith('via:') || D.SIGHT?.[it.src] || Math.abs(it.bet) > 30.5) continue;
       const col = sourceById(it.src)?.color ?? UI.text;
       const [X, Y] = toPx(it.lam, it.bet);
       if (big) { ctx.globalAlpha = 0.85; circleOutline(ctx, X, Y, Math.max(2.4, r1 * it.fov), col, 1.1); ctx.globalAlpha = 1; }
       else dot(ctx, X, Y, 1.8, col, 0.9);
     }
   }
-  if (state.sightOn && D.SIGHT?.bish19) {
-    const S = D.SIGHT.bish19;
+  for (const key of state.sightKeys ?? []) {
+    const S = D.SIGHT[key];
     for (let i = 0; i < S.name.length; i++) {
       if (Math.abs(S.bet[i]) > 30.5) continue;
       const [X, Y] = toPx(S.lam[i], S.bet[i]);

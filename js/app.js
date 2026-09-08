@@ -3,7 +3,7 @@
 const DATA_DIR = 'data';
 export const CODE_VERSION = 'v3.3';
 
-import { loadCore, loadQuaia, loadHalo, loadKgiants, loadBhb, loadKepler, loadGeha, loadDust3d, D } from './data.js';
+import { loadCore, loadQuaia, loadHalo, loadKgiants, loadBhb, loadKepler, loadGeha, loadDust3d, loadHicube, D } from './data.js';
 import {
   state, set, setField, slideField, replaceLock, on, emit, initHash, loadPrefs,
   loadSaved, storeSaved, saveCurrentField, galField, histState, histGo, histSeed,
@@ -195,6 +195,10 @@ const CAT_SOURCES = [
     num: () => D.CLOUDS ? fmtN(D.CLOUDS.src.filter(x => x === 2).length) : '—', lab: () => 'GASS HVC clouds', note: () => 'southern sky' },
   { sec: 'Survey fields', src: 'Bish et al. 2019', url: 'https://ui.adsabs.harvard.edu/abs/2019ApJ...882...76B/abstract',
     num: () => D.SIGHT?.bish19 ? `${D.SIGHT.bish19.name.length}` : '—', lab: () => 'Na I + Ca II BHB sightlines', note: () => 'Keck/HIRES' },
+  { sec: 'Survey fields', src: 'Bish et al. 2021 (QuaStar)', url: 'https://ui.adsabs.harvard.edu/abs/2021ApJ...912...79B/abstract',
+    num: () => D.SIGHT?.bish21 ? `${D.SIGHT.bish21.name.length}` : '—', lab: () => 'BHB–quasar sightline pairs', note: () => 'HST/COS · |b| > 30°' },
+  { sec: 'Foregrounds', src: 'HI4PI spectral cube', url: 'https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/594/A116',
+    num: () => '', lab: () => 'HI velocity moments + in-field spectra', note: () => 'all-gas ⟨v⟩, σ_v, |v| windows · 10 km/s cube' },
   { sec: 'Survey fields', src: 'Via visit lists', url: 'https://via-project.org/#/survey',
     num: () => D.VIA ? fmtN(D.VIA.svy.length) : '—', lab: () => 'planned 1° pointings', note: () => 'cgs · dgs · krs · sps + random transients' },
 ];
@@ -307,8 +311,8 @@ function buildSidebar() {
       ${cchip('bhbOn', 'BHB', UI.bhb, 'Xue+11 SDSS blue horizontal branch stars, 2-77 kpc')}
       ${cchip('kepOn', 'Kepler stars', UI.kep, 'Gaia stars in the Kepler field, parallax distances (< 5 kpc)')}
     </div>
-    <div class="row checks sub"><label class="tiny sec-lab">dwarf member stars</label></div>
-    <div class="svy-chips">${cchip('memOn', 'Battaglia+22 (Gaia G)', UI.member)}${cchip('mem2On', 'Geha+26 (predicted G)', UI.member2)}</div>
+    <div class="row checks sub"><label class="tiny sec-lab">dwarf / GC members</label></div>
+    <div class="svy-chips">${cchip('memOn', 'Battaglia+22 (DG members, Gaia G)', UI.member)}${cchip('mem2On', 'Geha+26 (GC + DG members, predicted G)', UI.gc)}</div>
     <div class="row checks sub"><label class="tiny sec-lab">filters</label></div>
     <div class="svy-chips">${cchip('via', 'Via streams only', '#cfc8bb')}${cchip('viaDwarfs', 'dwarfs ≤ 300 kpc', '#cfc8bb')}</div>
     </div>
@@ -785,7 +789,7 @@ async function boot() {
       ['quaia', () => loadQuaia(DATA_DIR)], ['halo RRL', () => loadHalo(DATA_DIR)],
       ['K giants', () => loadKgiants(DATA_DIR)], ['BHB', () => loadBhb(DATA_DIR)],
       ['Kepler stars', () => loadKepler(DATA_DIR)], ['Geha members', () => loadGeha(DATA_DIR)],
-      ['3D dust', () => loadDust3d(DATA_DIR)],
+      ['3D dust', () => loadDust3d(DATA_DIR)], ['HI cube', () => loadHicube(DATA_DIR)],
     ];
     for (const [nm, fn] of lazy) {
       fn().then(n => { console.log(`[viasual3] ${nm} loaded: ${n}`); emit('catalog', nm); });
