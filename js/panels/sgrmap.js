@@ -9,7 +9,7 @@ import { UI, scales, streamColor, SVY_COL, SVY_SHORT, bgScale, bgLabel } from '.
 import { fitCanvas, hexagram, diamond, label, dot, circleOutline } from './canvas2d.js';
 import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
-import { cloudColor } from './finder.js';
+import { cloudColor, oneillColor } from './finder.js';
 import { LIST, sourceById } from '../lists.js';
 import { viaHtml, drawColorbarH } from './allsky.js';
 import { dockSkyPanels } from './skylayers.js';
@@ -243,6 +243,31 @@ function draw() {
   }
   for (const key of state.sightKeys ?? []) {
     const S = D.SIGHT[key];
+    if (key === 'oneill26' && D.ONEILL) {           // cloud footprints on the strip (rings clipped to |B| < 30)
+      for (let i = 0; i < S.name.length; i++) {
+        const f = D.ONEILL.foot[String(S.id[i])]; if (!f) continue;
+        const col = oneillColor(S.vlsr[i]);
+        for (const [rings, fillA, lw, dash] of [[f.outer, 0.14, big ? 1.6 : 1.1, []], [f.core, 0.22, 0.9, [3, 2]]]) {
+          for (const ring of rings) {
+            if (!Array.from(ring.bet).some(b => Math.abs(b) < 30.5)) continue;
+            ctx.beginPath();
+            for (let k = 0; k < ring.lam.length; k++) {
+              const [X, Y] = toPx(ring.lam[k], Math.max(-30.5, Math.min(30.5, ring.bet[k])));
+              k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+            }
+            ctx.closePath();
+            ctx.globalAlpha = fillA; ctx.fillStyle = col; ctx.fill();
+            ctx.globalAlpha = 0.9; ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+          }
+        }
+        ctx.globalAlpha = 1;
+        if (Math.abs(S.bet[i]) < 30.5 && (big || S.ivc[i])) {
+          const [X, Y] = toPx(S.lam[i], S.bet[i]);
+          label(ctx, S.name[i], X + 4, Y - 3, { size: big ? 10 : 8, color: UI.text });
+        }
+      }
+      continue;
+    }
     for (let i = 0; i < S.name.length; i++) {
       if (Math.abs(S.bet[i]) > 30.5) continue;
       const [X, Y] = toPx(S.lam[i], S.bet[i]);

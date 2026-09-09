@@ -157,27 +157,27 @@ const fmtN = n => (n ?? 0).toLocaleString();
 // Input catalogs, grouped by what they are used for. lab = one line after the count;
 // note = an optional second line (only when it adds something)
 const CAT_SOURCES = [
-  { sec: 'Backlights', src: 'Bonaca & Price-Whelan 2025', url: 'https://ui.adsabs.harvard.edu/abs/2025NewAR.10001713B/abstract',
+  { sec: 'Backlights', src: 'Bonaca & Price-Whelan 2025', hl: 'streams', url: 'https://ui.adsabs.harvard.edu/abs/2025NewAR.10001713B/abstract',
     num: () => fmtN(D.N), lab: () => 'stream stars', note: () => `${D.STREAM_NAMES.length} streams` },
-  { sec: 'Backlights', src: 'Baumgardt & Vasiliev 2021', url: 'https://ui.adsabs.harvard.edu/abs/2021MNRAS.505.5957B/abstract',
+  { sec: 'Backlights', src: 'Baumgardt & Vasiliev 2021', hl: 'gc', url: 'https://ui.adsabs.harvard.edu/abs/2021MNRAS.505.5957B/abstract',
     num: () => `${D.GCC.lam.length}`, lab: () => 'globular clusters' },
-  { sec: 'Backlights', src: 'McConnachie 2012', url: 'https://ui.adsabs.harvard.edu/abs/2012AJ....144....4M/abstract',
+  { sec: 'Backlights', src: 'McConnachie 2012', hl: 'dwarfs', url: 'https://ui.adsabs.harvard.edu/abs/2012AJ....144....4M/abstract',
     num: () => `${D.DWF.src.filter(s => !s.startsWith('LVDB')).length}`, lab: () => 'dwarf galaxies', note: () => 'kept as the base catalog (distances, sizes, V) — Matt 9-8-26' },
-  { sec: 'Backlights', src: 'Pace — Local Volume Database', url: 'https://github.com/apace7/local_volume_database',
+  { sec: 'Backlights', src: 'Pace — Local Volume Database', hl: 'lvdb', url: 'https://github.com/apace7/local_volume_database',
     num: () => `${D.DWF.src.filter(s => s.startsWith('LVDB')).length}`, lab: () => 'dwarf galaxies', note: () => 'post-2012 discoveries only, appended (LVDB v1.0.6); for the 23 in common LVDB distances agree to 2 % median, its r_h (elliptical, major axis) runs ~4 % smaller' },
-  { sec: 'Backlights', src: 'Battaglia et al. 2022', url: 'https://ui.adsabs.harvard.edu/abs/2022A%26A...657A..54B/abstract',
+  { sec: 'Backlights', src: 'Battaglia et al. 2022', hl: 'mem', url: 'https://ui.adsabs.harvard.edu/abs/2022A%26A...657A..54B/abstract',
     num: () => fmtN(D.MEM.lam.length), lab: () => 'dwarf member stars', note: () => `${memCounts().size} dwarfs · Gaia G` },
-  { sec: 'Backlights', src: 'Geha et al. 2026', url: 'https://arxiv.org/abs/2602.10200',
+  { sec: 'Backlights', src: 'Geha et al. 2026', hl: 'mem2', url: 'https://arxiv.org/abs/2602.10200',
     num: () => D.MEM2 ? fmtN(D.MEM2.lam.length) : '…', lab: () => 'DEIMOS dwarf members', note: () => 'predicted G · Via DGS input' },
-  { sec: 'Backlights', src: 'Storey-Fisher et al. 2024 (Quaia)', url: 'https://ui.adsabs.harvard.edu/abs/2024ApJ...964...69S/abstract',
+  { sec: 'Backlights', src: 'Storey-Fisher et al. 2024 (Quaia)', hl: 'qso', url: 'https://ui.adsabs.harvard.edu/abs/2024ApJ...964...69S/abstract',
     num: () => D.QSO ? fmtN(D.QSO.lam.length) : '…', lab: () => 'quasars', note: () => 'G < 20.5' },
-  { sec: 'Backlights', src: 'Clementini et al. 2023', url: 'https://ui.adsabs.harvard.edu/abs/2023A%26A...674A..18C/abstract',
+  { sec: 'Backlights', src: 'Clementini et al. 2023', hl: 'halo', url: 'https://ui.adsabs.harvard.edu/abs/2023A%26A...674A..18C/abstract',
     num: () => D.HALO ? fmtN(D.HALO.lam.length) : '…', lab: () => 'halo RR Lyrae', note: () => '|Z| > 3 kpc' },
-  { sec: 'Backlights', src: 'Xue et al. 2011', url: 'https://ui.adsabs.harvard.edu/abs/2011ApJ...738...79X/abstract',
+  { sec: 'Backlights', src: 'Xue et al. 2011', hl: 'bhb', url: 'https://ui.adsabs.harvard.edu/abs/2011ApJ...738...79X/abstract',
     num: () => D.BHB ? fmtN(D.BHB.lam.length) : '…', lab: () => 'SDSS BHB stars', note: () => '2–77 kpc' },
-  { sec: 'Backlights', src: 'V. Chandra — K giants', url: null,
+  { sec: 'Backlights', src: 'V. Chandra — K giants', hl: 'kg', url: null,
     num: () => D.KG ? fmtN(D.KG.lam.length) : '…', lab: () => 'distant K giants', note: () => '10–125 kpc · Via KG class · private communication' },
-  { sec: 'Backlights', src: 'Kepler field × Gaia DR3', url: null,
+  { sec: 'Backlights', src: 'Kepler field × Gaia DR3', hl: 'kep', url: null,
     num: () => D.KEP ? fmtN(D.KEP.lam.length) : '…', lab: () => 'Kepler-field stars', note: () => 'parallax distances · Via KRS input' },
   { sec: 'Foregrounds', src: 'HI4PI — Ben Bekhti et al. 2016', url: 'https://ui.adsabs.harvard.edu/abs/2016A%26A...594A.116H/abstract',
     num: () => '', lab: () => 'all-sky HI column density', note: () => '5′ grid · 16′ beam' },
@@ -187,19 +187,21 @@ const CAT_SOURCES = [
     num: () => '', lab: () => 'dust E(B−V) map', note: () => 'all distances · 6′' },
   { sec: 'Foregrounds', src: 'Edenhofer et al. 2024', url: 'https://ui.adsabs.harvard.edu/abs/2024A%26A...685A..82E/abstract',
     num: () => '', lab: () => '3D dust sky slices', note: () => 'integrated to 300 / 600 / 1250 pc' },
-  { sec: 'Foregrounds', src: 'Putman et al. 2002', url: 'https://ui.adsabs.harvard.edu/abs/2002AJ....123..873P/abstract',
+  { sec: 'Foregrounds', src: 'Putman et al. 2002', hl: 'cloud0', url: 'https://ui.adsabs.harvard.edu/abs/2002AJ....123..873P/abstract',
     num: () => D.CLOUDS ? fmtN(D.CLOUDS.src.filter(x => x === 0).length) : '—', lab: () => 'HIPASS HVC clouds', note: () => 'southern sky' },
-  { sec: 'Foregrounds', src: 'Adams et al. 2013', url: 'https://ui.adsabs.harvard.edu/abs/2013ApJ...768...77A/abstract',
+  { sec: 'Foregrounds', src: 'Adams et al. 2013', hl: 'cloud1', url: 'https://ui.adsabs.harvard.edu/abs/2013ApJ...768...77A/abstract',
     num: () => D.CLOUDS ? fmtN(D.CLOUDS.src.filter(x => x === 1).length) : '—', lab: () => 'ALFALFA ultra-compact HVCs' },
-  { sec: 'Foregrounds', src: 'Moss et al. 2013', url: 'https://ui.adsabs.harvard.edu/abs/2013ApJS..209...12M/abstract',
+  { sec: 'Foregrounds', src: 'Moss et al. 2013', hl: 'cloud2', url: 'https://ui.adsabs.harvard.edu/abs/2013ApJS..209...12M/abstract',
     num: () => D.CLOUDS ? fmtN(D.CLOUDS.src.filter(x => x === 2).length) : '—', lab: () => 'GASS HVC clouds', note: () => 'southern sky' },
-  { sec: 'Survey fields', src: 'Bish et al. 2019', url: 'https://ui.adsabs.harvard.edu/abs/2019ApJ...882...76B/abstract',
+  { sec: 'Foregrounds', src: "O'Neill et al. 2026", hl: 'sight:oneill26', url: 'https://arxiv.org/abs/2605.24342',
+    num: () => D.SIGHT?.oneill26 ? `${D.SIGHT.oneill26.name.length}` : '—', lab: () => 'local disk–halo interface clouds', note: () => '3D dust + HI4PI: 3 IVCs, IV Arch, Draco, Local Bubble shell · footprints via the field collection' },
+  { sec: 'Survey fields', src: 'Bish et al. 2019', hl: 'sight:bish19', url: 'https://ui.adsabs.harvard.edu/abs/2019ApJ...882...76B/abstract',
     num: () => D.SIGHT?.bish19 ? `${D.SIGHT.bish19.name.length}` : '—', lab: () => 'Na I + Ca II BHB sightlines', note: () => 'Keck/HIRES' },
-  { sec: 'Survey fields', src: 'Bish et al. 2021 (QuaStar)', url: 'https://ui.adsabs.harvard.edu/abs/2021ApJ...912...79B/abstract',
+  { sec: 'Survey fields', src: 'Bish et al. 2021 (QuaStar)', hl: 'sight:bish21', url: 'https://ui.adsabs.harvard.edu/abs/2021ApJ...912...79B/abstract',
     num: () => D.SIGHT?.bish21 ? `${D.SIGHT.bish21.name.length}` : '—', lab: () => 'BHB–quasar sightline pairs', note: () => 'HST/COS · |b| > 30°' },
   { sec: 'Foregrounds', src: 'HI4PI spectral cube', url: 'https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/594/A116',
     num: () => '', lab: () => 'HI velocity moments + in-field spectra', note: () => 'all-gas ⟨v⟩, σ_v, |v| windows · 10 km/s cube' },
-  { sec: 'Survey fields', src: 'Via visit lists', url: 'https://via-project.org/#/survey',
+  { sec: 'Survey fields', src: 'Via visit lists', hl: 'via', url: 'https://via-project.org/#/survey',
     num: () => D.VIA ? fmtN(D.VIA.svy.length) : '—', lab: () => 'planned 1° pointings', note: () => 'cgs · dgs · krs · sps + random transients' },
 ];
 function catalogsHtml() {
@@ -212,7 +214,7 @@ function catalogsHtml() {
     for (const c of rows) {
       const src = c.url ? `<a href="${c.url}" target="_blank" rel="noopener">${c.src}</a>` : `<span class="cat-plain">${c.src}</span>`;
       const note = c.note?.();
-      html += `<div class="cat-entry"><div class="cat-src">${src}</div>` +
+      html += `<div class="cat-entry"${c.hl ? ` data-hl-cat="${c.hl}"` : ''}><div class="cat-src">${src}</div>` +
         `<div class="cat-num">${c.num() ? `<span class="cat-n">${c.num()}</span> ` : ''}<span class="tiny">${c.lab()}</span></div>` +
         (note ? `<div class="cat-note">${note}</div>` : '') + `</div>`;
     }
@@ -419,6 +421,17 @@ function wireSidebar() {
       if (id) toggleList(id, !state.listSrc.includes(id));
     });
   }
+  // Input catalogs: hovering an entry pops out that catalog's objects in the field view and
+  // dims everything else (same highlight as the ladder / stats hover) — Matt 9-9-26, trial
+  const catList = $('catalog-list');
+  catList.addEventListener('pointerover', e => {
+    const k = e.target.closest?.('[data-hl-cat]')?.dataset?.hlCat;
+    if (k !== undefined) emit('hilite', { type: 'cat', cat: k });
+  });
+  catList.addEventListener('pointerout', e => {
+    const el = e.target.closest?.('[data-hl-cat]');
+    if (el && !el.contains(e.relatedTarget)) emit('hilite', null);
+  });
   $('ovl-sky').addEventListener('click', e => { const v = !state.viaOn; e.currentTarget.classList.toggle('on', v); set({ viaOn: v }); });
   $('ovl-3d').addEventListener('click', e => { const v = !state.via3d; e.currentTarget.classList.toggle('on', v); set({ via3d: v }); });
   $('lists-group').addEventListener('toggle', e => set({ listsOpen: e.target.open }, 'layout'));

@@ -67,6 +67,7 @@ function inHilite(kind, structKey, dist, rawName = null) {
     if (hilite.kind === 'dwarf') return kind === 'dwarf' || kind === KIND.MEM || kind === KIND.MEM2;
     return kind === hilite.kind;
   }
+  if (hilite.type === 'cat') return catMatch(hilite.cat, kind, rawName);
   const r = hilite.rung;
   if (r.kind === 'halo') return kind === KIND.HALO && Math.abs(dist - r.dist) <= 1.5;
   if (r.kind === 'kg') return kind === KIND.KG && Math.abs(dist - r.dist) <= 1.5;
@@ -75,6 +76,35 @@ function inHilite(kind, structKey, dist, rawName = null) {
   return structKey === r.key;
 }
 const dimA = 0.12;
+
+// Input-catalog hover (sidebar): which finder sources belong to catalog `cat`.
+// `extra` carries the per-source tag where a kind is split across catalogs
+// (dwarf src string, cloud src code, sightline set key).
+export function catMatch(cat, kind, extra = null) {
+  switch (cat) {
+    case 'streams': return kind === KIND.STAR;
+    case 'gc': return kind === 'gc';
+    case 'dwarfs': return kind === 'dwarf' && !(typeof extra === 'string' && extra.startsWith('LVDB'));
+    case 'lvdb': return kind === 'dwarf' && typeof extra === 'string' && extra.startsWith('LVDB');
+    case 'mem': return kind === KIND.MEM;
+    case 'mem2': return kind === KIND.MEM2;
+    case 'qso': return kind === KIND.QSO;
+    case 'halo': return kind === KIND.HALO;
+    case 'bhb': return kind === KIND.BHB;
+    case 'kg': return kind === KIND.KG;
+    case 'kep': return kind === KIND.KEP;
+    case 'cloud0': case 'cloud1': case 'cloud2': return kind === 'cloud' && extra === +cat.slice(5);
+    case 'via': return kind === 'via';
+    default:
+      if (cat.startsWith('sight:')) return kind === 'sight' && extra === cat.slice(6);
+      return false;
+  }
+}
+// alpha for a whole-layer catalog highlight (clouds, sightlines, Via circles)
+function layerAlpha(kind, extra = null) {
+  if (hilite?.type !== 'cat') return 1;
+  return catMatch(hilite.cat, kind, extra) ? 1 : dimA;
+}
 
 function draw() {
   const big = expander?.isExpanded();
@@ -249,9 +279,10 @@ function drawViaPointings(ctx) {
     const [X, Y] = toPx(vx[k], vy[k]);
     const r = 30 * px.scale;
     const col = SVY_COL[V.svy[i]] ?? UI.textDim;
-    ctx.globalAlpha = 0.9;
+    const la = layerAlpha('via');
+    ctx.globalAlpha = 0.9 * la;
     circleOutline(ctx, X, Y, r, col, big ? 1.6 : 1.2, [6, 4]);
-    ctx.globalAlpha = 0.10;
+    ctx.globalAlpha = 0.10 * la;
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(X, Y, r, 0, 2 * Math.PI); ctx.fill();
     ctx.globalAlpha = 1;
@@ -365,23 +396,27 @@ function drawSources(ctx) {
       const i = F.cloudsInField[k];
       const [X, Y] = toPx(cx2[k], cy2[k]);
       const r = Math.max(5, cl.radDeg[i] * 60 * px.scale);
+      ctx.globalAlpha = layerAlpha('cloud', cl.src[i]);
       circleOutline(ctx, X, Y, r, cloudColor(i), 1.4, [5, 4]);
+      ctx.globalAlpha = 1;
       hitList.push({ x: X, y: Y, r, ring: 6, pri: -1,
         html: `<b>${cl.name[i]}</b> · ${cl.type[i]} · ${D.CLOUD_SRC[cl.src[i]]}<br>v_LSR ${cl.vlsr[i].toFixed(0)} · v_GSR ${cl.vgsr[i].toFixed(0)} km/s<br>size ~${(cl.radDeg[i] * 2).toFixed(1)}°`,
         lam: cl.lam[i], bet: cl.bet[i] });
     }
   }
 
-  // individual halo tracers: RRL, K giants, BHB, Kepler stars (small dots)
+  // individual halo stars: RRL, K giants, BHB, Kepler stars — small star glyphs in the
+  // catalog color (member-sized, like the GC/dwarf member symbols; Matt 9-9-26)
   const tracer = (arr, cat, kind, col, htmlFn, name) => {
     if (!arr?.length) return;
     const [hx, hy] = C.gnomonic(Float64Array.from(arr, i => cat.lam[i]), Float64Array.from(arr, i => cat.bet[i]), state.lam0, state.bet0);
     for (let k = 0; k < arr.length; k++) {
       const i = arr[k];
       const [X, Y] = toPx(hx[k], hy[k]);
-      const a = inHilite(kind, null, cat.dist[i]) ? 0.9 : dimA;
-      dot(ctx, X, Y, sz.tracer, col, a);
-      ctx.strokeStyle = '#00000066'; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.globalAlpha = inHilite(kind, null, cat.dist[i]) ? 0.95 : dimA;
+      if (sz.dense) { ctx.fillStyle = col; ctx.fillRect(X - 1.4, Y - 1.4, 2.8, 2.8); }
+      else starGlyph(ctx, X, Y, sz.tracer * 1.25, col, '#00000077');
+      ctx.globalAlpha = 1;
       hitList.push({ x: X, y: Y, r: sz.tracer + 2, pri: 0, html: htmlFn(i), lam: cat.lam[i], bet: cat.bet[i],
         lockInfo: { kind: 'star', id: i, name, dist: cat.dist[i] } });
     }
@@ -441,13 +476,16 @@ function drawSources(ctx) {
   for (const [key, idx] of Object.entries(F.sight ?? {})) {
     if (!idx.length) continue;
     const S = D.SIGHT[key];
+    if (key === 'oneill26' && D.ONEILL) { drawOneill(ctx, S, idx, big); continue; }
     const [sx, sy] = C.gnomonic(Float64Array.from(idx, i => S.lam[i]), Float64Array.from(idx, i => S.bet[i]), state.lam0, state.bet0);
     for (let k = 0; k < idx.length; k++) {
       const i = idx[k];
       const [X, Y] = toPx(sx[k], sy[k]);
+      ctx.globalAlpha = layerAlpha('sight', key);
       circleOutline(ctx, X, Y, 7, UI.text, 1.6);
       dot(ctx, X, Y, 2, UI.text, 1);
       label(ctx, S.name[i].split(' ')[0], X + 9, Y + 3, { size: big ? 11 : 8.5, color: UI.text });
+      ctx.globalAlpha = 1;
       hitList.push({ x: X, y: Y, r: 9, pri: 2, html: sightHtml(key, i),
         lam: S.lam[i], bet: S.bet[i], lockInfo: { kind: 'star', id: i, name: S.name[i].split(' ')[0], dist: S.dist[i] } });
     }
@@ -460,7 +498,7 @@ function drawSources(ctx) {
     for (let k = 0; k < ii.length; k++) {
       const i = ii[k];
       const [X, Y] = toPx(ox[k], oy[k]);
-      const hl = inHilite(kk, skey(cat.name[i]), cat.dist[i]);
+      const hl = inHilite(kk, skey(cat.name[i]), cat.dist[i], cat.src?.[i] ?? null);
       const oc = kk === 'dwarf' ? dwarfColorByName(cat.name[i]) : col;
       ctx.globalAlpha = hl ? 1 : dimA;
       if (cat.rh_am && Number.isFinite(cat.rh_am[i]) && cat.rh_am[i] > 0.3) {
@@ -483,8 +521,76 @@ function drawSources(ctx) {
   }
 }
 
+// O'Neill+26 cloud footprints: outer = median-extent voxels on the sky, core = A_V >= 50 % of
+// the cloud's peak; colored by v_LSR (blue approaching, red receding, ±80 km/s)
+export function oneillColor(v) {
+  return Number.isFinite(v) ? scales.vel.css(Math.max(0, Math.min(1, (v + 80) / 160))) : UI.cloud;
+}
+function ringPath(ctx, ring) {
+  const [xs, ys] = C.gnomonic(ring.lam, ring.bet, state.lam0, state.bet0);
+  const pts = [];
+  ctx.beginPath();
+  for (let k = 0; k < xs.length; k++) {
+    const [X, Y] = toPx(xs[k], ys[k]);
+    pts.push([X, Y]);
+    k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+  }
+  ctx.closePath();
+  return pts;
+}
+function drawOneill(ctx, S, idx, big) {
+  const la = layerAlpha('sight', 'oneill26');
+  for (const i of idx) {
+    const f = D.ONEILL.foot[String(S.id[i])];
+    const col = oneillColor(S.vlsr[i]);
+    const polys = [];
+    if (f) {
+      for (const ring of f.outer) {
+        const pts = ringPath(ctx, ring);
+        ctx.globalAlpha = 0.16 * la; ctx.fillStyle = col; ctx.fill();
+        ctx.globalAlpha = 0.9 * la; ctx.strokeStyle = col; ctx.lineWidth = big ? 2 : 1.5; ctx.setLineDash([]); ctx.stroke();
+        polys.push(pts);
+      }
+      for (const ring of f.core) {
+        ringPath(ctx, ring);
+        ctx.globalAlpha = 0.16 * la; ctx.fillStyle = col; ctx.fill();
+        ctx.globalAlpha = 0.8 * la; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+    ctx.globalAlpha = la;
+    const [cx, cy] = C.gnomonic(Float64Array.of(S.lam[i]), Float64Array.of(S.bet[i]), state.lam0, state.bet0);
+    const [X, Y] = toPx(cx[0], cy[0]);
+    const inside = X > -40 && X < cv.clientWidth + 40 && Y > -40 && Y < cv.clientHeight + 40;
+    if (inside) {
+      dot(ctx, X, Y, 3, col, 1); ctx.strokeStyle = '#000a'; ctx.lineWidth = 0.8; ctx.stroke();
+      label(ctx, `${S.name[i]}${S.ivc[i] ? ' (IVC)' : ''}`, X + 8, Y + 4, { size: big ? 12 : 9.5, color: UI.text, weight: '600' });
+    }
+    ctx.globalAlpha = 1;
+    hitList.push({ x: X, y: Y, r: 10, pri: 2, html: sightHtml('oneill26', i), lam: S.lam[i], bet: S.bet[i],
+      lockInfo: { kind: 'star', id: i, name: S.name[i], dist: S.dist[i] } });
+    for (const pts of polys) hitList.push({ x: X, y: Y, r: 0, poly: pts, pri: -2, html: sightHtml('oneill26', i), lam: S.lam[i], bet: S.bet[i] });
+  }
+}
+function pointInPoly(x, y, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 export function sightHtml(key, i) {
   const S = D.SIGHT[key];
+  if (key === 'oneill26') {
+    const m = S.mass[i] >= 1e4 ? `${(S.mass[i] / 1e4).toFixed(1)}×10⁴` : `${(S.mass[i] / 1e3).toFixed(1)}×10³`;
+    return `<b>${S.name[i]}</b>${S.ivc[i] ? ' · <b>IVC</b>' : ''} · ${S.group[i]}<br>` +
+      `d = ${S.d_pc[i]} pc · z = ${S.z_pc[i]} pc · v_LSR ${S.vlsr[i]} · v_dev ${S.vdev[i]} km/s<br>` +
+      `R_eff ${S.reff_pc[i]} pc · ${m} M☉ · ${S.area_deg2[i].toFixed(0)} deg² on the sky` +
+      (S.names[i] ? `<br><span style="opacity:.7">${S.names[i]}</span>` : '') +
+      (S.note[i] ? `<br><span style="opacity:.7">${S.note[i]}</span>` : '') +
+      `<br><span style="opacity:.7">O'Neill+26 (3D dust + HI4PI)</span>`;
+  }
   if (key === 'bish21') return `<b>${S.name[i]}</b> · BHB at ${S.dist[i]} kpc<br>Bish+21 QuaStar pair with <b>${S.qso[i]}</b><br>quasar ${S.sep[i]}° away · HST/COS`;
   return `<b>${S.name[i]}</b><br>Bish+19 Keck/HIRES Na I + Ca II sightline<br>${S.dist[i]} kpc · g ${S.g[i]} · v_helio ${S.hrv[i]} km/s`;
 }
@@ -502,7 +608,8 @@ function findHit(e) {
   let best = null, bd = 1e9, bp = -9;
   for (const h of hitList) {
     const d = Math.hypot(h.x - x, h.y - y);
-    if (h.ring !== undefined) { if (Math.abs(d - h.r) > h.ring) continue; }   // outlines hit on the line itself
+    if (h.poly) { if (!pointInPoly(x, y, h.poly)) continue; }                  // filled footprints hit anywhere inside
+    else if (h.ring !== undefined) { if (Math.abs(d - h.r) > h.ring) continue; }   // outlines hit on the line itself
     else if (d > h.r) continue;
     const pri = h.pri ?? 0;
     if (pri > bp || (pri === bp && d < bd)) { best = h; bd = d; bp = pri; }

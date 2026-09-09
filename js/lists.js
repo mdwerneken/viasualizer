@@ -20,6 +20,7 @@ export const TOP_COL = '#d8a35a';
 export const EXTRA_LISTS = [
   { id: 'bish19', title: 'Bish+19 BHBs (Keck/HIRES Na I / Ca II sightlines)', short: 'Bish+19 BHBs', color: CUSTOM_COL },
   { id: 'bish21', title: 'Bish+21 QuaStar (BHB–quasar pairs, HST/COS)', short: 'Bish+21 QuaStar', color: CUSTOM_COL },
+  { id: 'oneill26', title: "O'Neill+26 disk–halo interface clouds: the three IVCs (IVC 135, LLIV Arch, IVC 210), the IV Arch, positive-velocity high-altitude clouds, Draco and Local Bubble shell clouds — 3D dust + HI4PI", short: "O'Neill+26 IVCs & HACs", color: '#8ed0ff' },
 ];
 
 function viaItems(svy) {
@@ -56,13 +57,15 @@ function topItems(sec) {
   if (sec === 'kepler') {
     let bd = Infinity;
     for (const c of pool) { const d = Math.abs((c.glim ?? 20) - state.ghi); if (d < bd) { bd = d; best = { fov: 1, glim: c.glim ?? 20 }; } }
-  } else best = candGrid(state.fov, state.ghi);
-  if (!best) return [];
-  return pool.filter(c => c.fov === best.fov && (c.glim ?? 20) === best.glim)
+  } else if (sec === 'pick') best = null;          // curated picks: one list, own FOV per field
+  else best = candGrid(state.fov, state.ghi);
+  if (!best && sec !== 'pick') return [];
+  return pool.filter(c => !best || (c.fov === best.fov && (c.glim ?? 20) === best.glim))
     .map(c => ({
       lam: c.lam, bet: c.bet, l: c.l, b: c.b, fov: c.fov, ref: D.CANDIDATES.indexOf(c),
-      label: c.combo, sub: `G ≤ ${best.glim}`,
-      meta: `${c.n_rungs} rungs${Number.isFinite(c.n_qso) ? ` · ${c.n_qso} quasars` : ''} · log N(HI) ${c.log_nhi} · ${c.site}`,
+      label: c.title ?? c.combo, sub: best ? `G ≤ ${best.glim}` : `${c.fov}°`,
+      // exploratory lists (halo / gas / pick) carry their own one-line reason in `note`
+      meta: c.note ?? `${c.n_rungs} rungs${Number.isFinite(c.n_qso) ? ` · ${c.n_qso} quasars` : ''} · log N(HI) ${c.log_nhi} · ${c.site}`,
       scan: { rungs: c.n_rungs, nhi: c.log_nhi },
     }));
 }
@@ -76,6 +79,12 @@ function savedItems() {
 function sightItems(key) {
   const S = D.SIGHT?.[key];
   if (!S) return [];
+  if (key === 'oneill26') return S.name.map((nm, i) => ({
+    lam: S.lam[i], bet: S.bet[i], l: S.l[i], b: S.b[i], fov: S.fov[i], ref: i,
+    label: nm, sub: `${S.d_pc[i]} pc`,
+    meta: `${S.group[i]} · z ${S.z_pc[i]} pc · v_LSR ${S.vlsr[i]} · v_dev ${S.vdev[i]} km/s · R_eff ${S.reff_pc[i]} pc · ${(S.area_deg2[i]).toFixed(0)} deg²${S.note[i] ? ' · ' + S.note[i] : ''}`,
+    dist: S.dist[i],
+  }));
   return S.name.map((nm, i) => ({
     lam: S.lam[i], bet: S.bet[i], l: S.l[i], b: S.b[i], fov: 1, ref: i,
     label: nm.split(' ')[0], sub: `${S.dist[i]} kpc`,
@@ -97,6 +106,14 @@ export function initLists() {
   SOURCES.push({ id: 'top', group: 'top', color: TOP_COL, title: 'Best by distance coverage', short: 'Best by distance coverage', items: () => topItems('top') });
   SOURCES.push({ id: 'topvia', group: 'top', color: TOP_COL, title: 'Best including a Via stream', short: 'Best including a Via stream', items: () => topItems('via') });
   SOURCES.push({ id: 'topkep', group: 'top', color: '#4caf50', title: 'Best in the Kepler field (1°, Kepler stars as rungs)', short: 'Best in the Kepler field', items: () => topItems('kepler') });
+  // exploratory shortlists (Matt 9-9-26): not rung-optimised — ~20 fields per grid point chosen
+  // for different reasons (each item says why); the curated picks are one list for all settings
+  if (D.CANDIDATES.some(c => c.sec === 'pick'))
+    SOURCES.push({ id: 'toppick', group: 'top', color: '#f2c200', title: '20 interesting commissioning fields — hand-curated for a variety of reasons (one list for every FOV / G)', short: '20 interesting fields', items: () => topItems('pick') });
+  if (D.CANDIDATES.some(c => c.sec === 'halo'))
+    SOURCES.push({ id: 'tophalo', group: 'top', color: '#ff6fb0', title: 'Halo-star fields — many individual halo stars (RR Lyrae, K giants, BHBs) with a wide distance spread; picked for distance variety, counts, stars beyond 50 kpc, RRL, BHBs', short: 'Rich in halo stars', items: () => topItems('halo') });
+  if (D.CANDIDATES.some(c => c.sec === 'gas'))
+    SOURCES.push({ id: 'topgas', group: 'top', color: '#6fd8e8', title: 'Interesting foreground HI with backlights — high-velocity / intermediate-velocity column, anomalous mean velocity, broad dispersion, catalogued compact clouds', short: 'Interesting HI + backlights', items: () => topItems('gas') });
   if (D.VIA) {
     // display order (Matt 9-7-26): streams, dwarfs, cold gas, transients, kepler; rbs (4 placeholder rows) folded into tfs
     for (const svy of ['sps', 'dgs', 'cgs', 'tfs', 'krs']) {

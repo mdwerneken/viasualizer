@@ -135,7 +135,7 @@ function draw() {
       else if (r.kind === 'dwarf') {
         const c = D.DWF.name.includes(r.label) ? dwarfColorByName(r.label) : streamColorByName(r.label);
         diamond(ctx, X, y, 7.5, c, '#000a');
-      } else if (r.kind === 'halo' || r.kind === 'kg' || r.kind === 'bhb') dot(ctx, X, y, 6.5, kc[r.kind], 0.95);
+      } else if (r.kind === 'halo' || r.kind === 'kg' || r.kind === 'bhb') starGlyph(ctx, X, y, 6.5, kc[r.kind], '#000a');
       else starGlyph(ctx, X, y, 8, streamColorByName(r.label), '#000a');
       iconHits.push({ x: X, y, r: 11, rung: r });
     }

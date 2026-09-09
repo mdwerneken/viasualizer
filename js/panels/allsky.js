@@ -12,7 +12,7 @@ import { UI, scales, streamColor, SVY_COL, SVY_SHORT, bgScale, bgLabel } from '.
 import { fitCanvas, hexagram, diamond, dot, label, circleOutline } from './canvas2d.js';
 import { makeExpandable } from './expand.js';
 import { placeTooltip } from '../scene3d.js';
-import { cloudColor } from './finder.js';
+import { cloudColor, oneillColor } from './finder.js';
 import { LIST, sourceById } from '../lists.js';
 import { dockSkyPanels } from './skylayers.js';
 
@@ -179,6 +179,7 @@ function buildStarLayer(w, h) {
   const gl = expander?.isExpanded() ? 1.9 : 1;   // GC / dwarf glyph scale when enlarged
   const key = [w, h, zoom, zx, zy, state.via, state.streamsOn, state.hlStream && state.streamSel,
     state.memOn, state.mem2On, state.gcOn, state.dgOn, state.viaDwarfs,
+    state.haloOn && !!D.HALO, state.kgOn && !!D.KG, state.bhbOn && !!D.BHB, state.kepOn && !!D.KEP, state.hide && state.ghi,
     state.hlGC && state.gcSel, state.hlDwarf && state.dwarfSel, state.himap, UI.themeName, !!D.MEM2, !!D.DUST].join('|');
   if (starCache && starCacheKey === key) return starCache;
   starCacheKey = key;
@@ -222,6 +223,24 @@ function buildStarLayer(w, h) {
         const [X, Y] = toPx(mx, my);
         ctx.fillRect(X, Y, 2, 2);
       }
+    }
+    ctx.globalAlpha = 1;
+  }
+  // individual halo stars (RRL / K giants / BHB / Kepler) — the same catalogs the 3D view
+  // shows, thinned so the big catalogs stay legible (Matt 9-9-26: 2D views mirror the 3D)
+  const magOk = g => !state.hide || !Number.isFinite(g) || g <= state.ghi;
+  for (const [on, cat, col] of [[state.kgOn, D.KG, UI.kg], [state.haloOn, D.HALO, UI.halo], [state.kepOn, D.KEP, UI.kep], [state.bhbOn, D.BHB, UI.bhb]]) {
+    if (!on || !cat) continue;
+    const n = cat.lam.length, stride = Math.max(1, Math.round(n / 12000));   // <= ~12k points per catalog
+    ctx.globalAlpha = n > 50000 ? 0.32 : 0.7;
+    ctx.fillStyle = col;
+    const G = cat.G ?? cat.g;
+    const s = n > 50000 ? 1.1 : 1.5;
+    for (let i = 0; i < n; i += stride) {
+      if (G && !magOk(G[i])) continue;
+      const [mx, my] = C.mollXY(cat.l[i], cat.b[i]);
+      const [X, Y] = toPx(mx, my);
+      ctx.fillRect(X, Y, s, s);
     }
     ctx.globalAlpha = 1;
   }
@@ -318,6 +337,32 @@ function draw() {
   // literature sightlines
   for (const key of state.sightKeys ?? []) {
     const S = D.SIGHT[key];
+    if (key === 'oneill26' && D.ONEILL) {           // cloud footprints (outer extent + dashed core)
+      for (let i = 0; i < S.name.length; i++) {
+        const f = D.ONEILL.foot[String(S.id[i])]; if (!f) continue;
+        const col = oneillColor(S.vlsr[i]);
+        for (const [rings, fillA, lw, dash] of [[f.outer, 0.14, big ? 1.6 : 1.1, []], [f.core, 0.22, 0.9, [3, 2]]]) {
+          for (const ring of rings) {
+            ctx.beginPath();
+            for (let k = 0; k < ring.l.length; k++) {
+              const [mx, my] = C.mollXY(ring.l[k], ring.b[k]);
+              const [X, Y] = toPx(mx, my);
+              k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+            }
+            ctx.closePath();
+            ctx.globalAlpha = fillA; ctx.fillStyle = col; ctx.fill();
+            ctx.globalAlpha = 0.9; ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+          }
+        }
+        ctx.globalAlpha = 1;
+        if (big || S.ivc[i]) {
+          const [mx, my] = C.mollXY(S.l[i], S.b[i]);
+          const [X, Y] = toPx(mx, my);
+          label(ctx, S.name[i], X + 4, Y - 3, { size: big ? 10 : 8, color: UI.text });
+        }
+      }
+      continue;
+    }
     for (let i = 0; i < S.name.length; i++) {
       const [mx, my] = C.mollXY(S.l[i], S.b[i]);
       const [X, Y] = toPx(mx, my);

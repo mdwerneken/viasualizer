@@ -115,7 +115,13 @@ export function computeField(lam0, bet0, fov, opts = {}) {
     for (const i of cand) if (state.viaSvy[D.VIA.svy[i]]) R.via.push(i);
   }
   R.sight = {};                       // { setKey: [indices in field] }
-  for (const k of state.sightKeys ?? []) if (D.SIGHT?.[k]) R.sight[k] = C.fieldIndices(lam0, bet0, D.SIGHT[k].UG, r);
+  for (const k of state.sightKeys ?? []) if (D.SIGHT?.[k]) {
+    const S = D.SIGHT[k];
+    // extended objects (O'Neill+26 clouds carry an angular radius): in the field when the
+    // footprint's circle-equivalent overlaps it, not only when the centroid does
+    R.sight[k] = S.rad ? [...S.name.keys()].filter(i => C.angSepAm(lam0, bet0, S.lam[i], S.bet[i]) / 60 <= r + S.rad[i])
+      : C.fieldIndices(lam0, bet0, S.UG, r);
+  }
 
   R.src = buildSources([
     { cat: D, kind: KIND.STAR, idx: R.idx, dist: D.s_dist_use, vr: D.s_Vr, },

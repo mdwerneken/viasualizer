@@ -2,7 +2,7 @@
 // v3 (9-6-26): + Via planned pointings, Chandra K giants, Xue+11 BHBs, Kepler-field stars,
 // Geha+26 dwarf members, GASS HVCs, SFD dust, Bish+19 sightlines, LVDB dwarfs.
 import { loadNpz } from './npz.js';
-import { unitVectors, matVec } from './compute.js';
+import { unitVectors, matVec, convPoint } from './compute.js';
 
 export const D = {};   // global data store
 
@@ -44,12 +44,12 @@ function catFromJson(raw) {
 }
 
 // bump when files in data/ change, so deployed pages never read stale caches
-export const DATA_VERSION = 'v4.0';
+export const DATA_VERSION = 'v4.1';
 const q = `?${DATA_VERSION}`;
 
 export async function loadCore(dataDir, onProgress = () => {}) {
   const t0 = performance.now();
-  const [meta, stars, maps, gcsRaw, dwarfsRaw, members, cloudsRaw, viaRaw, sightRaw] = await Promise.all([
+  const [meta, stars, maps, gcsRaw, dwarfsRaw, members, cloudsRaw, viaRaw, sightRaw, oneillRaw] = await Promise.all([
     fetch(`${dataDir}/meta.json${q}`).then(r => r.json()),
     loadNpz(`${dataDir}/stars.npz${q}`).then(x => { onProgress('stream stars'); return x; }),
     loadNpz(`${dataDir}/maps.npz${q}`).then(x => { onProgress('sky maps'); return x; }),
@@ -59,6 +59,7 @@ export async function loadCore(dataDir, onProgress = () => {}) {
     fetch(`${dataDir}/clouds.json${q}`).then(r => r.ok ? r.json() : null).catch(() => null),
     fetch(`${dataDir}/via_fields.json${q}`).then(r => r.ok ? r.json() : null).catch(() => null),
     fetch(`${dataDir}/sightlines.json${q}`).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`${dataDir}/clouds_oneill26.json${q}`).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
 
   Object.assign(D, meta);           // M_GAL, M_SGR, R_ICRS2GC, RG_GAL2GC, SUN_GC, constants...
@@ -144,6 +145,24 @@ export async function loadCore(dataDir, onProgress = () => {}) {
     s.lam = Float64Array.from(s.lam); s.bet = Float64Array.from(s.bet);
     s.l = Float64Array.from(s.l); s.b = Float64Array.from(s.b);
     s.UG = unitVectors(s.lam, s.bet);
+  }
+  // O'Neill+26 cloud footprints (tools/build_oneill26.py): polygons in Galactic (l, b);
+  // keep a Sgr-frame copy for the finder / Sgr strip. D.ONEILL.foot[id] = {outer:[rings], core:[rings]},
+  // each ring = { l, b, lam, bet } Float64Arrays.
+  D.ONEILL = null;
+  if (oneillRaw?.foot) {
+    const conv = ring => {
+      const n = ring.length, l = new Float64Array(n), b = new Float64Array(n), lam = new Float64Array(n), bet = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        l[i] = ring[i][0]; b[i] = ring[i][1];
+        const [a, c] = convPoint(D.M_GAL, D.M_SGR, l[i], b[i]);
+        lam[i] = a; bet[i] = c;
+      }
+      return { l, b, lam, bet };
+    };
+    const foot = {};
+    for (const [id, f] of Object.entries(oneillRaw.foot)) foot[id] = { outer: (f.outer ?? []).map(conv), core: (f.core ?? []).map(conv) };
+    D.ONEILL = { source: oneillRaw.source, url: oneillRaw.url, zenodo: oneillRaw.zenodo, note: oneillRaw.note, foot };
   }
 
   // survey cones: sky regions the survey will tile (FOVs set by Matt 8-19-26)
