@@ -109,4 +109,6 @@ Data: Bonaca & Price-Whelan 2025 · Baumgardt & Vasiliev 2021 · McConnachie 201
 2023 · V. Chandra (priv. comm.) · Xue et al. 2011 · Kepler × Gaia DR3 · Putman et al. 2002 ·
 Adams et al. 2013 · Moss et al. 2013 · HI4PI (Ben Bekhti et al. 2016) · Westmeier 2018 · Schlegel,
 Finkbeiner & Davis 1998 · Edenhofer et al. 2024 · Bish et al. 2019 · the Via visit lists.
+Face-on Milky Way image in the 3D view: [ESA/Gaia/DPAC, Stefan Payne-Wardenaar](https://www.esa.int/ESA_Multimedia/Images/2025/01/The_best_Milky_Way_map_by_Gaia)
+(2025, CC BY-SA 3.0 IGO), the 40 kpc-square crop used on [C. Swiggum's site](https://cswigg.github.io/cam_website/), edges faded (`img/mw_faceon_gaia.jpg`).
 Built by Matthew Werneken with Claude (Anthropic).

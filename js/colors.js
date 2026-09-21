@@ -12,6 +12,7 @@ const THEMES = {
     dust: [[0, 'rgb(22,21,20)'], [0.5, 'rgb(120,86,50)'], [1, 'rgb(245,205,150)']],
     pairs: [[0, 'rgb(25,24,22)'], [0.5, 'rgb(110,100,70)'], [1, 'rgb(240,220,170)']],
     finderBg: '#141312', rungLine: '#3a3733',
+    streamDim: '#dcd8d0',     // non-highlighted streams in 3D + Sagittarius default (near-white grey, Matt 9-21-26)
   },
   light: {
     bg: '#f4f1ea', scene: '#f4f1ea', panel: '#fbf9f5', panel2: '#f2efe8', panelBorder: '#d8d2c6',
@@ -21,6 +22,7 @@ const THEMES = {
     dust: [[0, 'rgb(250,248,244)'], [0.5, 'rgb(210,170,120)'], [1, 'rgb(110,70,30)']],
     pairs: [[0, 'rgb(248,246,242)'], [0.5, 'rgb(190,170,120)'], [1, 'rgb(90,70,30)']],
     finderBg: '#ffffff', rungLine: '#cfc8bb',
+    streamDim: '#a9a39a',
   },
 };
 
@@ -122,7 +124,14 @@ export function applyTheme(name) {
 export const HEMI_COL = { 0: '#4e9cd6', 1: '#57c069', 2: '#e06060' };  // S / Both / N
 export const HEMI_LBL = { 0: 'S / Magellan', 1: 'Both', 2: 'N / MMT' };
 
-export function streamColor(code) { return PALETTE[code % PALETTE.length]; }
+// Sagittarius (the sky-wrapping backdrop) is drawn in the light grey instead of its palette
+// slot so it reads against the dark scene without competing with the other streams
+let _sgrCode = null;
+export function sgrCode() {
+  if (_sgrCode === null && D.STREAM_NAMES) _sgrCode = D.STREAM_NAMES.indexOf('Sagittarius');
+  return _sgrCode ?? -1;
+}
+export function streamColor(code) { return code === sgrCode() ? UI.streamDim : PALETTE[code % PALETTE.length]; }
 export function streamColorByName(name) {
   const i = D.STREAM_NAMES.indexOf(name);
   return i >= 0 ? streamColor(i) : '#c05252';

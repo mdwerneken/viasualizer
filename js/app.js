@@ -201,6 +201,8 @@ const CAT_SOURCES = [
     num: () => D.SIGHT?.bish21 ? `${D.SIGHT.bish21.name.length}` : '—', lab: () => 'BHB–quasar sightline pairs', note: () => 'HST/COS · |b| > 30°' },
   { sec: 'Foregrounds', src: 'HI4PI spectral cube', url: 'https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/594/A116',
     num: () => '', lab: () => 'HI velocity moments + in-field spectra', note: () => 'all-gas ⟨v⟩, σ_v, |v| windows · 10 km/s cube' },
+  { sec: 'Foregrounds', src: 'ESA/Gaia/DPAC · Payne-Wardenaar 2025', url: 'https://www.esa.int/ESA_Multimedia/Images/2025/01/The_best_Milky_Way_map_by_Gaia',
+    num: () => '', lab: () => 'face-on Milky Way image (3D plane)', note: () => 'artist\'s impression from Gaia data · CC BY-SA 3.0 IGO · 40 kpc crop' },
   { sec: 'Survey fields', src: 'Via visit lists', hl: 'via', url: 'https://via-project.org/#/survey',
     num: () => D.VIA ? fmtN(D.VIA.svy.length) : '—', lab: () => 'planned 1° pointings', note: () => 'cgs · dgs · krs · sps + random transients' },
 ];
@@ -320,6 +322,9 @@ function buildSidebar() {
     </div>
     <div class="row combo">
       <button id="disk-btn" class="cone-btn ${state.diskOn ? 'on' : ''}" style="--cone:#8a7ae0">show disk <span class="tiny">(R = 10 kpc, z = 1 kpc)</span></button>
+    </div>
+    <div class="row combo">
+      <button id="mw-btn" class="cone-btn ${state.mwOn ? 'on' : ''}" style="--cone:#5b7fb5">Milky Way image <span class="tiny">(Gaia · Payne-Wardenaar, 40 kpc)</span></button>
     </div>
   </details>
 
@@ -471,6 +476,11 @@ function wireSidebar() {
     const v = !state.diskOn;
     e.currentTarget.classList.toggle('on', v);
     set({ diskOn: v });
+  });
+  $('mw-btn').addEventListener('click', e => {
+    const v = !state.mwOn;
+    e.currentTarget.classList.toggle('on', v);
+    set({ mwOn: v });
   });
   document.querySelectorAll('.cone-btn[data-cone]').forEach(b => {
     b.classList.toggle('on', !!state[b.dataset.cone]);

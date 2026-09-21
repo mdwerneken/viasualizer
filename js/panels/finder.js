@@ -22,6 +22,7 @@ let hiStretch = null;
 let hilite = null;
 let liveMove = false;
 let lastCover = 0;
+let exportMode = false;   // painting the PNG export (circle only, no chrome)
 
 export function initFinder(container) {
   wrap = container;
@@ -33,6 +34,12 @@ export function initFinder(container) {
     onToggle: () => draw(),
     hint: 'drag pans · scroll changes the FOV (1–5°) · double-click recenters · Esc closes',
   });
+  const dl = document.createElement('button');
+  dl.className = 'dl-btn';
+  dl.title = 'download the field view as a PNG (the circle only, transparent outside)';
+  dl.textContent = '⤓';
+  dl.addEventListener('click', e => { e.stopPropagation(); exportFieldPng(); });
+  container.appendChild(dl);
   on('fieldmodel', (opts) => { liveMove = !!opts?.live; draw(); });
   on('hilite', h => { hilite = h; draw(); });
   on('theme', draw);
@@ -118,7 +125,29 @@ function draw() {
   px.scale = px.R / Ram;
   updateOrientation();
   hitList = [];
+  paintCircle(ctx, w, h, big);
 
+  // compass: Galactic N up, ℓ increasing to the left
+  const cxC = w - (big ? 40 : 26), cyC = big ? h - 40 : h - 28, arm = big ? 16 : 10;
+  ctx.strokeStyle = UI.textDim; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cxC, cyC); ctx.lineTo(cxC, cyC - arm); ctx.moveTo(cxC, cyC); ctx.lineTo(cxC - arm, cyC); ctx.stroke();
+  label(ctx, 'N', cxC, cyC - arm - 3, { align: 'center', size: big ? 10 : 8, color: UI.textDim });
+  label(ctx, 'ℓ+', cxC - arm - 3, cyC + 3, { align: 'right', size: big ? 10 : 8, color: UI.textDim });
+  const sx0 = big ? 22 : 8;
+  const bar = 15 * px.scale;
+  ctx.fillStyle = UI.textDim;
+  ctx.fillRect(sx0, h - 8, bar, 1.5);
+  label(ctx, "15′", sx0 + bar / 2, h - 12, { align: 'center', size: big ? 12 : 10.5, color: UI.textDim });
+  if (state.lock?.name) {
+    label(ctx, state.lock.name, w - 8, h - 8,
+      { align: 'right', size: big ? 15 : 12.5, color: UI.text, weight: 'italic 700' });
+  }
+  drawLegend(ctx, w, h);
+}
+
+// everything inside the field circle + the red rim (the PNG export paints only this)
+function paintCircle(ctx, w, h, big) {
+  const Ram = state.fov / 2 * 60;
   ctx.save();
   ctx.beginPath();
   ctx.arc(px.cx, px.cy, px.R, 0, 2 * Math.PI);
@@ -137,29 +166,41 @@ function draw() {
       const [X, Y] = toPx(cxc, cyc);
       circleOutline(ctx, X, Y, 30 * px.scale, UI.themeName === 'light' ? 'rgba(40,40,40,0.5)' : 'rgba(255,255,255,0.55)', 1.1);
     }
-    if (cov.length !== lastCover) { lastCover = cov.length; emit('cover', cov.length); }
-  } else if (state.fov <= 1.001 && lastCover) { lastCover = 0; emit('cover', 0); }
+    if (!exportMode && cov.length !== lastCover) { lastCover = cov.length; emit('cover', cov.length); }
+  } else if (!exportMode && state.fov <= 1.001 && lastCover) { lastCover = 0; emit('cover', 0); }
   drawSources(ctx);
   ctx.restore();
 
   // field rim
   circleOutline(ctx, px.cx, px.cy, px.R, UI.accent, 2.2);
-  // compass: Galactic N up, ℓ increasing to the left
-  const cxC = w - (big ? 40 : 26), cyC = big ? h - 40 : h - 28, arm = big ? 16 : 10;
-  ctx.strokeStyle = UI.textDim; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(cxC, cyC); ctx.lineTo(cxC, cyC - arm); ctx.moveTo(cxC, cyC); ctx.lineTo(cxC - arm, cyC); ctx.stroke();
-  label(ctx, 'N', cxC, cyC - arm - 3, { align: 'center', size: big ? 10 : 8, color: UI.textDim });
-  label(ctx, 'ℓ+', cxC - arm - 3, cyC + 3, { align: 'right', size: big ? 10 : 8, color: UI.textDim });
-  const sx0 = big ? 22 : 8;
-  const bar = 15 * px.scale;
-  ctx.fillStyle = UI.textDim;
-  ctx.fillRect(sx0, h - 8, bar, 1.5);
-  label(ctx, "15′", sx0 + bar / 2, h - 12, { align: 'center', size: big ? 12 : 10.5, color: UI.textDim });
-  if (state.lock?.name) {
-    label(ctx, state.lock.name, w - 8, h - 8,
-      { align: 'right', size: big ? 15 : 12.5, color: UI.text, weight: 'italic 700' });
-  }
-  drawLegend(ctx, w, h);
+}
+
+// PNG of the field view alone (Matt 9-21-26, for slides): the circle's contents + the red
+// rim at 2400 px, transparent outside the rim, no legend / compass / scale bar / labels.
+// Painted at the enlarged-panel layout size and scaled up, so glyph proportions match the
+// enlarged view; the background raster is sampled twice as finely.
+export function exportFieldPng() {
+  const L = 760, out = 2400;
+  const off = document.createElement('canvas');
+  off.width = out; off.height = out;
+  const ctx = off.getContext('2d');
+  ctx.setTransform(out / L, 0, 0, out / L, 0, 0);
+  const savedPx = { ...px }, savedHits = hitList;
+  exportMode = true;
+  px.R = L / 2 - 6; px.cx = L / 2; px.cy = L / 2; px.scale = px.R / (state.fov / 2 * 60);
+  updateOrientation();
+  hitList = [];
+  try { paintCircle(ctx, L, L, true); }
+  finally { exportMode = false; Object.assign(px, savedPx); hitList = savedHits; }
+  const [gl, gb] = C.convPoint(D.M_SGR, D.M_GAL, state.lam0, state.bet0);
+  const name = `viasualizer_field_l${gl.toFixed(1)}_b${gb.toFixed(1)}_fov${state.fov.toFixed(1)}deg.png`;
+  off.toBlob(blob => {
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }, 'image/png');
 }
 
 function drawLegend(ctx, w, h) {
@@ -189,7 +230,7 @@ function drawLegend(ctx, w, h) {
 }
 
 function drawBackground(ctx, Ram) {
-  const n = 112;                                  // raster across the field; bilinear from the 5' grid
+  const n = exportMode ? 224 : 112;               // raster across the field; bilinear from the 5' grid
   const bg = bgGridFor(state.himap);
   const grids = [[bg.gal, bgScale(), 1.0]];
   if (bg.overlay) grids.push([bg.overlay, scales.hiRed, 0.55]);
@@ -346,11 +387,11 @@ function coverPointings(xi, eta, r = 30, minCov = 2, cap = 300) {
 // glyph sizes scale down with crowding so dense fields (Sgr core) stay readable
 function glyphSizes() {
   const n = F.src.n;
-  const big = expander?.isExpanded() ? 1.35 : 1;
+  const big = (exportMode || expander?.isExpanded()) ? 1.35 : 1;
   const s = n < 60 ? 1.0 : n < 250 ? 0.8 : n < 800 ? 0.62 : n < 2500 ? 0.45 : 0.32;
   return {
-    viaStar: Math.max(4.5, 12 * s) * big,      // stream stars: one (large) size, Via or not (Matt 9-7-26)
-    star: Math.max(4.5, 12 * s) * big,
+    viaStar: Math.max(6.75, 18 * s) * big,     // stream stars: one (large) size, Via or not (Matt 9-7-26); ×1.5 (Matt 9-21-26)
+    star: Math.max(6.75, 18 * s) * big,
     tracer: Math.max(2.0, 4.6 * s) * big,
     member: Math.max(2.0, 4.6 * s) * big,
     qso: Math.max(2.0, 4.2 * s) * big,
@@ -448,8 +489,8 @@ function drawSources(ctx) {
   members(F.mm, D.MEM, KIND.MEM, i => dwarfColorByName(D.MEM.name[i]), '');
   members(F.mm2, D.MEM2, KIND.MEM2, i => (D.MEM2.isGC?.[i] ? UI.gc : dwarfColorByName(D.MEM2.name[i])), ' (Geha+26, predicted G)', i => !!D.MEM2.isGC?.[i]);
 
-  // stream stars — identity colors; Via-stream stars drawn LAST and larger
-  const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
+  // stream stars — identity colors (also when another stream is highlighted; the 3D view
+  // greys them, the finder keeps the colours — Matt 9-21-26); Via-stream stars drawn LAST
   if (F.idx.length) {
     const [xi, eta] = C.gnomonic(Float64Array.from(F.idx, i => D.s_lam[i]), Float64Array.from(F.idx, i => D.s_bet[i]), state.lam0, state.bet0);
     for (const pass of [0, 1]) {
@@ -458,8 +499,7 @@ function drawSources(ctx) {
         const isVia = D.viaMask[i] === 1;
         if ((pass === 1) !== isVia) continue;
         const [X, Y] = toPx(xi[k], eta[k]);
-        const isSel = selCode < 0 || D.s_name_code[i] === selCode;
-        const fill = isSel ? streamColor(D.s_name_code[i]) : UI.greyStar;
+        const fill = streamColor(D.s_name_code[i]);
         const hl = inHilite(KIND.STAR, skey(D.streamName(i)), D.s_dist_use[i], D.streamName(i));
         ctx.globalAlpha = hl ? 1 : dimA;
         const r = isVia ? sz.viaStar : sz.star;

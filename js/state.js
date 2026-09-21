@@ -26,7 +26,8 @@ export const state = {
   hemiCones: false,            // MMT/Magellan visibility cones (no UI since 9-7-26)
   theme: 'dark',               // whole-app theme (light mode retired 9-7-26)
   boxOn: false,                // 100 kpc reference box (no UI since 9-7-26)
-  diskOn: true,                // galactic disk
+  diskOn: true,                // galactic disk (placeholder slab)
+  mwOn: true,                  // face-on Milky Way image on the plane (Gaia / Payne-Wardenaar)
   streamsOn: true, qsoOn: true, gcOn: true, dgOn: true, memOn: true, haloOn: false,
   kgOn: false, bhbOn: false, kepOn: false, mem2On: true,    // v3 catalogs (Geha members on by default since 9-8-26)
   cloudsOn: false, cloudFilter: 'all',   // all | compact | vhvc
@@ -85,7 +86,7 @@ export function syncListFlags() {
 
 // ---- persisted preferences (sidebar, layer toggles) ---------------------------------
 const PREF_KEYS = ['sidebar', 'listsOpen', 'viaOn', 'via3d', 'mem2On', 'kgOn', 'bhbOn', 'kepOn', 'haloOn',
-  'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'diskOn', 'listSort'];
+  'cloudHipass', 'cloudAlfalfa', 'cloudGass', 'cloudColor', 'diskOn', 'mwOn', 'listSort'];
 let prefTimer = null;
 function savePrefs() {
   clearTimeout(prefTimer);
@@ -213,7 +214,7 @@ export function icrsField() {
 const HASH_KEYS = ['fov', 'mode', 'ghi', 'himap', 'tab'];
 const FLAG_KEYS = ['streamsOn', 'qsoOn', 'gcOn', 'dgOn', 'memOn', 'haloOn', 'cloudsOn',
   'hide', 'via', 'viaDwarfs', 'hiSphere', 'coneKepler', 'coneM31', 'coneM82',
-  'diskOn', 'kgOn', 'bhbOn', 'kepOn', 'mem2On', 'viaOn', 'dust3dOn', 'via3d'];
+  'diskOn', 'mwOn', 'kgOn', 'bhbOn', 'kepOn', 'mem2On', 'viaOn', 'dust3dOn', 'via3d'];
 let hashTimer = null, applyingHash = false;
 
 function scheduleHash() {

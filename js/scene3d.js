@@ -20,7 +20,7 @@ let bold = 1;                // tour: thicker Sun + arrow while the 3D step is s
 const CAM_DIR = new THREE.Vector3(1.12, 1.12, 0.72).normalize();
 const CAM_DIST = 160;
 let pointer = {};
-let hiSphere = null, conesGroup = null, hemiConesGroup = null, disk, sunMesh, gridGroup;
+let hiSphere = null, conesGroup = null, hemiConesGroup = null, disk, mwPlane, sunMesh, gridGroup;
 let SUN;
 let needsRender = true;
 let camBucket = -1, camThin = 1;
@@ -107,6 +107,7 @@ function setDim(f) {
   for (const m of POINT_MATS) m.uniforms.uDim.value = f;
   if (!DIM_MESH.length) {
     DIM_MESH.push([disk, disk.material.opacity]);
+    DIM_MESH.push([mwPlane, mwPlane.material.opacity]);
     for (const m of conesGroup?.children ?? []) DIM_MESH.push([m, m.material.opacity]);
   }
   for (const [m, o] of DIM_MESH) m.material.opacity = o * f;
@@ -144,6 +145,7 @@ export function initScene(container) {
 
   buildStars();
   buildDisk();
+  buildMwImage();
   buildSun();
   buildGrid();
   buildObjectCatalogs();
@@ -235,11 +237,11 @@ export function restyle() {
   const mode = state.mode, glo = state.glo, ghi = state.ghi;
   const distLo = D.DIST_MIN, distSpan = D.DIST_MAX - D.DIST_MIN;
   const light = UI.themeName === 'light';
-  const grey = hexToRgb01(UI.greyStar), out = hexToRgb01(UI.outRange);
+  const grey = hexToRgb01(UI.streamDim), out = hexToRgb01(UI.outRange);
   const selCode = (state.hlStream && state.streamSel) ? D.STREAM_NAMES.indexOf(state.streamSel) : -1;
   const hemiRgb = [hexToRgb01(HEMI_COL[0]), hexToRgb01(HEMI_COL[1]), hexToRgb01(HEMI_COL[2])];
   const palRgb = [];
-  for (let c = 0; c < 20; c++) palRgb.push(hexToRgb01(streamColor(c)));
+  for (let c = 0; c < D.STREAM_NAMES.length; c++) palRgb.push(hexToRgb01(streamColor(c)));
 
   starPts.visible = state.streamsOn;
   for (let i = 0; i < n; i++) {
@@ -259,7 +261,7 @@ export function restyle() {
     }
     if (!isSel) {
       col[3 * i] = grey[0]; col[3 * i + 1] = grey[1]; col[3 * i + 2] = grey[2];
-      al[i] = 0.45; sz[i] = 2.2;
+      al[i] = 0.6; sz[i] = 2.2;
       continue;
     }
     let r, gg, b;
@@ -274,7 +276,7 @@ export function restyle() {
     } else if (mode === 'hemi') {
       [r, gg, b] = hemiRgb[D.s_hemi[i]];
     } else {
-      [r, gg, b] = palRgb[code % 20];
+      [r, gg, b] = palRgb[code];
     }
     col[3 * i] = r; col[3 * i + 1] = gg; col[3 * i + 2] = b;
     al[i] = light ? 0.95 : 0.85; sz[i] = light ? 3.0 : 2.6;
@@ -302,6 +304,21 @@ function buildDisk() {
   disk = new THREE.Mesh(geo, mat);
   disk.renderOrder = -4;
   scene.add(disk);
+}
+// Face-on Milky Way image on the Galactic plane — ESA/Gaia/DPAC, Stefan Payne-Wardenaar
+// (2025, CC BY-SA 3.0 IGO), the 40 kpc-square crop C. Swiggum uses; edges faded to black
+// and drawn additively so only the light adds to the scene. Orientation checked against
+// the bar (near end at l > 0): image left = −X (Sun side), image up = +Y.
+function buildMwImage() {
+  const tex = new THREE.TextureLoader().load('img/mw_faceon_gaia.jpg', () => { needsRender = true; });
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const geo = new THREE.PlaneGeometry(40, 40);
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 1.0, depthWrite: false,
+    side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+  mwPlane = new THREE.Mesh(geo, mat);
+  mwPlane.renderOrder = -5;
+  scene.add(mwPlane);
 }
 function buildSun() {
   sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 14), new THREE.MeshBasicMaterial({ color: new THREE.Color(UI.sun) }));
@@ -707,6 +724,7 @@ function updateChrome() {
   gridGroup.visible = state.boxOn;
   gridGroup.userData.mat.color.set(UI.grid);
   disk.visible = state.diskOn;
+  mwPlane.visible = state.mwOn;
   renderer.setClearColor(new THREE.Color(UI.scene));
 }
 

@@ -329,6 +329,10 @@ html[data-theme="light"] .badge.none { background: #f6d9d9; color: #8a2a2a; }
 #finder-wrap { width: 100%; position: relative; }
 .finder-canvas { display: block; cursor: crosshair; margin: 0 auto; }
 #finder-wrap .expand-btn { top: 22px; right: -4px; }
+#finder-wrap .dl-btn { position: absolute; top: 88px; right: 2px; z-index: 8; background: none; border: none;
+  color: var(--dim); width: 30px; height: 30px; font-size: 22px; line-height: 1; padding: 0; cursor: pointer; }
+#finder-wrap .dl-btn:hover { color: var(--text); }
+#finder-wrap.expanded .dl-btn { top: 60px; right: 12px; font-size: 26px; }
 #finder-wrap.expanded, #allsky-wrap.expanded, #sgrmap-wrap.expanded { background: var(--bg); border: none; }
 
 /* full-screen enlarge */
@@ -413,7 +417,8 @@ body.tour-on .expand-btn { cursor: default; }
   background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
 #layout.sb-closed #allsky-wrap.expanded #finder-wrap, #layout.sb-closed #allsky-wrap.expanded #layers-wrap, #sgrmap-wrap.expanded #layers-wrap { left: 16px; }
 #allsky-wrap.expanded .expand-hint { display: none; }
-#allsky-wrap.expanded #finder-wrap .expand-btn, #sgrmap-wrap.expanded #finder-wrap .expand-btn { display: none; }
+#allsky-wrap.expanded #finder-wrap .expand-btn, #sgrmap-wrap.expanded #finder-wrap .expand-btn,
+#allsky-wrap.expanded #finder-wrap .dl-btn, #sgrmap-wrap.expanded #finder-wrap .dl-btn { display: none; }
 
 /* tooltips */
 .tooltip { position: fixed; display: none; z-index: 70; background: color-mix(in srgb, var(--panel2) 94%, transparent);
