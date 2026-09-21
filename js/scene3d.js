@@ -300,7 +300,7 @@ function buildDisk() {
   const geo = new THREE.CylinderGeometry(10, 10, 1, 72);
   geo.rotateX(Math.PI / 2);
   // depthWrite off: the translucent slab must not hide the local dust / Kepler stars inside it
-  const mat = new THREE.MeshBasicMaterial({ color: 0x6a5acd, transparent: true, opacity: 0.30, depthWrite: false });
+  const mat = new THREE.MeshBasicMaterial({ color: 0x6a5acd, transparent: true, opacity: 0.24, depthWrite: false });
   disk = new THREE.Mesh(geo, mat);
   disk.renderOrder = -4;
   scene.add(disk);
@@ -435,8 +435,8 @@ function catPoints(cat, colorHex, sizePx, kind, fs = STAR_FS) {
 }
 
 function buildObjectCatalogs() {
-  gcPts = catPoints(D.GCC, UI.gc, 11, 'gc', HEXAGRAM_FS);
-  dwfPts = catPoints(D.DWF, UI.dwarf, 10.5, 'dwarf', DIAMOND_FS);
+  gcPts = catPoints(D.GCC, UI.gc, 13.2, 'gc', HEXAGRAM_FS);        // ×1.2 (Matt 9-21-26)
+  dwfPts = catPoints(D.DWF, UI.dwarf, 12.6, 'dwarf', DIAMOND_FS);
   memPts = catPoints(D.MEM, UI.member, 2.4, 'member');
 }
 

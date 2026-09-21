@@ -288,6 +288,8 @@ function drawBackground(ctx, Ram) {
     ctx.drawImage(off, px.cx - px.R, px.cy - px.R, 2 * px.R, 2 * px.R);
     ctx.globalAlpha = 1;
   }
+  // lift the whole background ~20 % so the field is less dark overall (Matt 9-21-26)
+  if (UI.themeName !== 'light') { ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillRect(px.cx - px.R, px.cy - px.R, 2 * px.R, 2 * px.R); }
 }
 
 const MAGELLANIC = [{ name: 'LMC', rDeg: 5.4 }, { name: 'SMC', rDeg: 2.6 }];
@@ -390,8 +392,8 @@ function glyphSizes() {
   const big = (exportMode || expander?.isExpanded()) ? 1.35 : 1;
   const s = n < 60 ? 1.0 : n < 250 ? 0.8 : n < 800 ? 0.62 : n < 2500 ? 0.45 : 0.32;
   return {
-    viaStar: Math.max(6.75, 18 * s) * big,     // stream stars: one (large) size, Via or not (Matt 9-7-26); ×1.5 (Matt 9-21-26)
-    star: Math.max(6.75, 18 * s) * big,
+    viaStar: Math.max(5.1, 13.5 * s) * big,    // stream stars: one (large) size, Via or not (Matt 9-7-26); ×1.5 then ×0.75 (Matt 9-21-26)
+    star: Math.max(5.1, 13.5 * s) * big,
     tracer: Math.max(2.0, 4.6 * s) * big,
     member: Math.max(2.0, 4.6 * s) * big,
     qso: Math.max(2.0, 4.2 * s) * big,
@@ -456,16 +458,17 @@ function drawSources(ctx) {
       const [X, Y] = toPx(hx[k], hy[k]);
       ctx.globalAlpha = inHilite(kind, null, cat.dist[i]) ? 0.95 : dimA;
       if (sz.dense) { ctx.fillStyle = col; ctx.fillRect(X - 1.4, Y - 1.4, 2.8, 2.8); }
-      else starGlyph(ctx, X, Y, sz.tracer * 1.25, col, '#00000077');
+      else starGlyph(ctx, X, Y, sz.tracer * 1.875, col, '#00000077');   // ×1.5 (Matt 9-21-26)
       ctx.globalAlpha = 1;
-      hitList.push({ x: X, y: Y, r: sz.tracer + 2, pri: 0, html: htmlFn(i), lam: cat.lam[i], bet: cat.bet[i],
+      hitList.push({ x: X, y: Y, r: sz.tracer * 1.5 + 2, pri: 0, html: htmlFn(i), lam: cat.lam[i], bet: cat.bet[i],
         lockInfo: { kind: 'star', id: i, name, dist: cat.dist[i] } });
     }
   };
-  tracer(F.kep, D.KEP, KIND.KEP, UI.kep, i => `<b>Kepler-field star</b><br>${D.KEP.dist[i].toFixed(2)} kpc (1/parallax)<br>G = ${D.KEP.G[i].toFixed(2)}`, 'Kepler star');
-  tracer(F.hh, D.HALO, KIND.HALO, UI.halo, i => `<b>halo ${D.HALO.clsNames[D.HALO.cls[i]] || 'RRL'}</b><br>${D.HALO.dist[i].toFixed(1)} kpc (±10%)<br>G = ${D.HALO.G[i].toFixed(2)}`, 'halo RRL');
-  tracer(F.kg, D.KG, KIND.KG, UI.kg, i => `<b>K giant</b> (Chandra set ${D.KG.set[i]})<br>${D.KG.dist[i].toFixed(1)} kpc (isochrone)<br>G = ${D.KG.G[i].toFixed(2)}`, 'K giant');
-  tracer(F.bhb, D.BHB, KIND.BHB, UI.bhb, i => `<b>BHB star</b> (Xue+11)<br>${D.BHB.dist[i].toFixed(1)} kpc<br>g = ${D.BHB.G[i].toFixed(2)} · v_helio ${D.BHB.hrv[i].toFixed(0)} km/s`, 'BHB');
+  // all four tracer catalogs pink in the field view for now (Matt 9-21-26; ladder/3D keep their colours)
+  tracer(F.kep, D.KEP, KIND.KEP, UI.haloPink, i => `<b>Kepler-field star</b><br>${D.KEP.dist[i].toFixed(2)} kpc (1/parallax)<br>G = ${D.KEP.G[i].toFixed(2)}`, 'Kepler star');
+  tracer(F.hh, D.HALO, KIND.HALO, UI.haloPink, i => `<b>halo ${D.HALO.clsNames[D.HALO.cls[i]] || 'RRL'}</b><br>${D.HALO.dist[i].toFixed(1)} kpc (±10%)<br>G = ${D.HALO.G[i].toFixed(2)}`, 'halo RRL');
+  tracer(F.kg, D.KG, KIND.KG, UI.haloPink, i => `<b>K giant</b> (Chandra set ${D.KG.set[i]})<br>${D.KG.dist[i].toFixed(1)} kpc (isochrone)<br>G = ${D.KG.G[i].toFixed(2)}`, 'K giant');
+  tracer(F.bhb, D.BHB, KIND.BHB, UI.haloPink, i => `<b>BHB star</b> (Xue+11)<br>${D.BHB.dist[i].toFixed(1)} kpc<br>g = ${D.BHB.G[i].toFixed(2)} · v_helio ${D.BHB.hrv[i].toFixed(0)} km/s`, 'BHB');
 
   // dwarf members (same color as the dwarfs); Geha members lighter
   // members take their parent's symbol (dwarf = diamond, GC = hexagram), at member size

@@ -46,6 +46,8 @@ export const UI = {
   axis: '#4d4944',          // plot axes / ticks / slider tracks (lighter than the panel border)
   cloud: '#6fd8e8',         // HVC clouds
   sight: '#ffffff',         // literature sightlines
+  gd1: '#c8203e',           // GD-1 identity colour (crimson, distinct from the field red) — Matt 9-21-26
+  haloPink: '#ff6fb0',      // all individual halo stars in the field view (trial, Matt 9-21-26)
   ...THEMES.dark,
 };
 
@@ -126,12 +128,20 @@ export const HEMI_LBL = { 0: 'S / Magellan', 1: 'Both', 2: 'N / MMT' };
 
 // Sagittarius (the sky-wrapping backdrop) is drawn in the light grey instead of its palette
 // slot so it reads against the dark scene without competing with the other streams
-let _sgrCode = null;
+let _sgrCode = null, _gd1Code = null;
 export function sgrCode() {
   if (_sgrCode === null && D.STREAM_NAMES) _sgrCode = D.STREAM_NAMES.indexOf('Sagittarius');
   return _sgrCode ?? -1;
 }
-export function streamColor(code) { return code === sgrCode() ? UI.streamDim : PALETTE[code % PALETTE.length]; }
+function gd1Code() {
+  if (_gd1Code === null && D.STREAM_NAMES) _gd1Code = D.STREAM_NAMES.indexOf('GD-1');
+  return _gd1Code ?? -1;
+}
+export function streamColor(code) {
+  if (code === sgrCode()) return UI.streamDim;
+  if (code === gd1Code()) return UI.gd1;
+  return PALETTE[code % PALETTE.length];
+}
 export function streamColorByName(name) {
   const i = D.STREAM_NAMES.indexOf(name);
   return i >= 0 ? streamColor(i) : '#c05252';
