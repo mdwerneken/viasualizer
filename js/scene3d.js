@@ -833,20 +833,32 @@ function fieldDir3() {
   const v = C.matVec(D.R_ICRS2GC, vIcrs);
   return new THREE.Vector3(...v).normalize();
 }
-function pointerLen() {
+// median distance of stream `name`'s stars in (or just around) the current field
+function streamDistHere(name) {
+  const idx = C.fieldIndices(state.lam0, state.bet0, D.UG_SGR, Math.max(state.fov / 2, 1.0));
+  const ds = [];
+  for (const i of idx) if (D.streamName(i) === name) ds.push(D.s_dist_use[i]);
+  return C.median(ds);
+}
+// Arrow length, and how thick to draw it. A field-list lock (a planned Via pointing or a
+// shortlist entry) whose target is a stream reaches that stream's distance, stopping 5 %
+// short so the head sits just in front of the stars, and is drawn thicker — the object-lock
+// arrow gets too thin at these lengths (Matt 9-21-26).
+function pointerGeom() {
   const L = state.lock;
   if (L) {
+    if (L.kind === 'list' && L.name && D.STREAM_NAMES?.includes(L.name)) {
+      const m = streamDistHere(L.name);
+      if (Number.isFinite(m)) return { len: Math.max(3, 0.95 * Math.min(m, D.BOX_R)), thick: 1.7 };
+    }
     if (L.kind === 'stream') {
-      const idx = C.fieldIndices(state.lam0, state.bet0, D.UG_SGR, Math.max(state.fov / 2, 1.0));
-      const ds = [];
-      for (const i of idx) if (D.streamName(i) === L.id) ds.push(D.s_dist_use[i]);
-      const m = C.median(ds);
-      if (Number.isFinite(m)) return Math.max(3, 0.8 * Math.min(m, D.BOX_R));
+      const m = streamDistHere(L.id);
+      if (Number.isFinite(m)) return { len: Math.max(3, 0.8 * Math.min(m, D.BOX_R)), thick: 1 };
     } else if (Number.isFinite(L.dist)) {
-      return Math.max(3, 0.8 * Math.min(L.dist, D.BOX_R));
+      return { len: Math.max(3, 0.8 * Math.min(L.dist, D.BOX_R)), thick: 1 };
     }
   }
-  return ARROW_LEN;
+  return { len: ARROW_LEN, thick: 1 };
 }
 function buildPointer() {
   const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff4545') });
@@ -863,11 +875,11 @@ function buildPointer() {
 }
 export function updatePointer() {
   const dir = fieldDir3();
-  const len = pointerLen();
+  const { len, thick } = pointerGeom();
   const up = new THREE.Vector3(0, 1, 0);
-  const tipLen = Math.max(0.44, len * 0.053) * Math.max(0.35, camThin) * (bold > 1 ? 1.4 : 1);
-  const tipRad = tipLen * 0.34 * (bold > 1 ? 1.5 : 1);
-  const shaftRad = Math.max(0.02, len * 0.0078 * camThin) * bold;
+  const tipLen = Math.max(0.44, len * 0.053) * Math.max(0.35, camThin) * (bold > 1 ? 1.4 : 1) * (thick > 1 ? 1.15 : 1);
+  const tipRad = tipLen * 0.34 * (bold > 1 ? 1.5 : 1) * thick;
+  const shaftRad = Math.max(0.02, len * 0.0078 * camThin) * bold * thick;
   const shaftLen = len - tipLen;
   pointer.shaft.position.copy(SUN);
   pointer.shaft.scale.set(shaftRad, shaftLen, shaftRad);
