@@ -849,7 +849,7 @@ function pointerGeom() {
   if (L) {
     if (L.kind === 'list' && L.name && D.STREAM_NAMES?.includes(L.name)) {
       const m = streamDistHere(L.name);
-      if (Number.isFinite(m)) return { len: Math.max(3, 0.95 * Math.min(m, D.BOX_R)), thick: 1.7 };
+      if (Number.isFinite(m)) return { len: Math.max(3, 0.95 * Math.min(m, D.BOX_R)), thick: 2.1 };
     }
     if (L.kind === 'stream') {
       const m = streamDistHere(L.id);
@@ -887,7 +887,9 @@ export function updatePointer() {
   pointer.tip.position.copy(SUN.clone().add(dir.clone().multiplyScalar(shaftLen)));
   pointer.tip.scale.set(tipRad, tipLen, tipRad);
   pointer.tip.quaternion.setFromUnitVectors(up, dir);
-  const ringDist = len + 1;
+  // the field circle sits just beyond the arrow head, not a fixed 1 kpc out — at a short
+  // stream-distance arrow that pushed it past the stream itself (Matt 9-21-26)
+  const ringDist = len + Math.max(0.15, len * 0.035);
   const rad = Math.max(0.05, ringDist * Math.tan((state.fov / 2) * Math.PI / 180));
   const tube = Math.min(0.10, Math.max(0.025, rad * 0.06));
   pointer.ring.geometry.dispose();
